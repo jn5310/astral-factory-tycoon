@@ -77,6 +77,17 @@ export const TURRETS: Partial<Record<BuildingKind, TurretDef>> = {
 export const SLOW_FACTOR = 0.5;
 export const SLOW_DURATION = 2.2;
 
+/** Kills needed for veterancy ranks 1..3 (Veteran, Elite, Ace). */
+export const RANK_KILLS: readonly number[] = [10, 30, 75];
+/** Damage bonus per rank. */
+export const RANK_DAMAGE_BONUS = 0.15;
+
+export function rankFor(kills: number): number {
+  let rank = 0;
+  for (const k of RANK_KILLS) if (kills >= k) rank++;
+  return rank;
+}
+
 export function ammoFor(kind: BuildingKind, item: ItemId): AmmoDef | undefined {
   return TURRETS[kind]?.ammo.find((a) => a.item === item);
 }

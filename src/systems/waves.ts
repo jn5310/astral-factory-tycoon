@@ -3,9 +3,12 @@ import type { TileXY } from '../core/types';
 import { ENEMIES, ENEMY_TYPES, type EnemyType } from '../data/enemies';
 import { DAY_LENGTH, MAX_ENEMIES } from '../data/constants';
 import { coreCenter, type World } from '../core/World';
-import { pushEvent, playSound, toast } from '../core/grid';
+import { pushEvent, playSound, radio, toast } from '../core/grid';
+import { DIFFICULTY } from '../data/difficulty';
+import { enemyName, msg } from '../utils/i18n';
 import { Rng } from '../utils/rng';
 import { isNightPhase } from './daynight';
+import { attacksEnabled, waveMultiplier } from './modifiers';
 import { pollutionAt } from './pollution';
 
 export { daylightAt, isNightPhase, secondsUntilDawn, secondsUntilNight } from './daynight';
@@ -102,8 +105,13 @@ export function waveThreat(orders: readonly SpawnOrder[]): number {
 
 function startWave(world: World): void {
   const w = world.waves;
+  w.triggered = true;
+  const mul = waveMultiplier(world);
+  // Peaceful mode: the night still falls, but nothing comes.
+  if (mul <= 0) return;
   w.night++;
-  const budget = waveBudget(w.night, world.pollution.total);
+  const pollution = world.pollution.total * DIFFICULTY[world.settings.difficulty].pollutionMul;
+  const budget = Math.round(waveBudget(w.night, pollution) * mul);
   const orders = composeWave(w.night, budget, world.rng);
   w.queue = ordersToQueue(orders);
   // Shuffle so enemy types arrive mixed, not in neat blocks.
@@ -117,13 +125,25 @@ function startWave(world: World): void {
     }
   }
   w.active = true;
-  w.triggered = true;
   w.spawnTimer = 0;
   w.spawnInterval = Math.max(0.25, 0.9 - w.night * 0.05);
   w.lastThreat = waveThreat(orders);
   pushEvent(world, { type: 'nightStart', night: w.night });
   playSound(world, 'alarm', coreCenter(world).x, coreCenter(world).y);
-  toast(world, `${w.night}번째 밤: 외계 생명체 공습! (위협도 ${w.lastThreat})`, 'danger');
+  toast(world, msg().toast.nightStart(w.night, w.lastThreat), 'danger');
+}
+
+/** Dawn bookkeeping: survival counters, clean-night streak, blood moon ends. */
+function dawn(world: World): void {
+  const c = world.counters;
+  const w = world.waves;
+  c.nightsSurvived++;
+  const attacked = w.triggered && w.lastThreat > 0 && attacksEnabled(world);
+  if (attacked && c.nightLosses === 0) c.cleanNights++;
+  if (attacked) radio(world, msg().radio.dawn(world.day));
+  c.nightLosses = 0;
+  w.lastThreat = 0;
+  world.director.bloodMoon = false;
 }
 
 /** Spawns one enemy beside a nest (or a random map edge when the map has none). */
@@ -131,17 +151,24 @@ export function spawnAtNest(world: World, type: EnemyType, nest?: TileXY): void 
   if (world.enemies.length >= MAX_ENEMIES) return;
   const picked = nest ?? (world.nests.length > 0 ? world.nests[world.rng.int(0, world.nests.length - 1)] : undefined);
   const base = picked ?? { x: world.rng.int(0, world.width - 1), y: 0 };
-  const hpScale = 1 + world.waves.night * 0.08;
+  const hpScale = (1 + world.waves.night * 0.08) * DIFFICULTY[world.settings.difficulty].enemyHpMul;
   const x = base.x + 0.5 + world.rng.range(-1, 1);
   const y = base.y + 0.5 + world.rng.range(-1, 1);
   world.enemies.push(createEnemy(world.nextEnemyId++, type, x, y, hpScale));
+  if (type === 'leviathan') {
+    pushEvent(world, { type: 'bossSpawn', x, y });
+    toast(world, msg().toast.bossIncoming(enemyName('leviathan')), 'danger', { x, y });
+    playSound(world, 'siren', x, y);
+  }
 }
 
 /** Pollution that diffuses out to a nest provokes a raid from that nest, even in daylight. */
 export function pollutionRaids(world: World): number {
+  if (!attacksEnabled(world)) return 0;
+  const sensitivity = DIFFICULTY[world.settings.difficulty].pollutionMul;
   let sent = 0;
   for (const nest of world.nests) {
-    const p = pollutionAt(world.pollution, nest.x, nest.y);
+    const p = pollutionAt(world.pollution, nest.x, nest.y) * sensitivity;
     if (p < RAID_THRESHOLD) continue;
     const size = Math.min(RAID_MAX, Math.floor(p / RAID_THRESHOLD));
     for (let i = 0; i < size; i++) {
@@ -149,7 +176,7 @@ export function pollutionRaids(world: World): number {
     }
     sent += size;
   }
-  if (sent > 0) toast(world, `오염에 자극받은 외계 생명체 ${sent}마리가 습격합니다!`, 'warning');
+  if (sent > 0) toast(world, msg().toast.raid(sent), 'warning');
   return sent;
 }
 
@@ -161,6 +188,7 @@ export function updateWaves(world: World, dt: number): void {
   while (world.dayPhase >= 1) {
     world.dayPhase -= 1;
     world.day++;
+    dawn(world);
     w.triggered = false;
     pushEvent(world, { type: 'dayStart', day: world.day });
   }

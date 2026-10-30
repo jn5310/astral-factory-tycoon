@@ -1,6 +1,6 @@
 import type { Building, BuildingConfig } from '../entities/Building';
 import { createBuilding } from '../entities/Building';
-import { BUILDINGS, type BuildingKind, isConveyorKind } from '../data/buildings';
+import { BUILDINGS, type BuildingKind, isConveyorKind, isCrafterKind } from '../data/buildings';
 import type { ItemId } from '../data/items';
 import { Terrain } from '../data/terrain';
 import { buildingAt, inBounds, markMapChanged, playSound, pushEvent } from '../core/grid';
@@ -9,6 +9,7 @@ import type { World } from '../core/World';
 import { invAdd, invAddAll, invHasAll } from './inventory';
 import { autoTunnelMode } from './logistics';
 import { computeDrillOre } from './production';
+import { msg } from '../utils/i18n';
 import { isBuildingUnlocked } from './research';
 
 export interface PlacementCheck {
@@ -53,23 +54,23 @@ export function countKind(world: World, kind: BuildingKind): number {
 /** Full placement validation: bounds, terrain, overlap, research, unique-building caps. */
 export function canPlace(world: World, kind: BuildingKind, x: number, y: number): PlacementCheck {
   const def = BUILDINGS[kind];
-  if (!def.buildable) return { ok: false, reason: '건설할 수 없는 구조물' };
-  if (!isBuildingUnlocked(world, kind)) return { ok: false, reason: '연구가 필요합니다' };
+  if (!def.buildable) return { ok: false, reason: msg().reasons.notBuildable };
+  if (!isBuildingUnlocked(world, kind)) return { ok: false, reason: msg().reasons.needResearch };
   if (def.maxCount !== undefined && countKind(world, kind) >= def.maxCount) {
-    return { ok: false, reason: '이미 건설됨' };
+    return { ok: false, reason: msg().reasons.unique };
   }
   for (let dy = 0; dy < def.size; dy++) {
     for (let dx = 0; dx < def.size; dx++) {
       const tx = x + dx;
       const ty = y + dy;
-      if (!inBounds(world, tx, ty)) return { ok: false, reason: '맵 범위를 벗어남' };
-      if (world.occupancy[ty * world.width + tx] !== 0) return { ok: false, reason: '다른 건물과 겹침' };
-      if (!terrainBuildable(world, tx, ty)) return { ok: false, reason: '물 위에는 지을 수 없습니다' };
+      if (!inBounds(world, tx, ty)) return { ok: false, reason: msg().reasons.outOfBounds };
+      if (world.occupancy[ty * world.width + tx] !== 0) return { ok: false, reason: msg().reasons.overlap };
+      if (!terrainBuildable(world, tx, ty)) return { ok: false, reason: msg().reasons.water };
     }
   }
   if (kind === 'mech_drill' || kind === 'electric_drill') {
     if (computeDrillOre(world, x, y, def.size, kind).count === 0) {
-      return { ok: false, reason: kind === 'mech_drill' ? '광맥 위에 설치하세요(티타늄은 전기 드릴)' : '광맥 위에 설치하세요' };
+      return { ok: false, reason: kind === 'mech_drill' ? msg().reasons.needOreMech : msg().reasons.needOre };
     }
   }
   return { ok: true };
@@ -99,12 +100,14 @@ export function placeBuilding(
 ): PlaceResult {
   const check = canPlace(world, kind, x, y);
   if (!check.ok) return { ok: false, reason: check.reason };
-  if (!opts.free && !hasResources(world, kind)) return { ok: false, reason: '자원 부족' };
-  if (!opts.free) {
+  const free = opts.free === true || world.settings.mode === 'sandbox';
+  if (!free && !hasResources(world, kind)) return { ok: false, reason: msg().reasons.lacking };
+  if (!free) {
     for (const s of BUILDINGS[kind].cost) invAdd(world.inventory, s.item, -s.amount);
   }
   const config: BuildingConfig = { ...opts.config };
   if (kind === 'tunnel' && config.tunnelMode === undefined) config.tunnelMode = autoTunnelMode(world, x, y, rot);
+  if (isCrafterKind(kind) && config.recipe === undefined && world.lastRecipe[kind]) config.recipe = world.lastRecipe[kind];
   const b = createBuilding(world.nextId++, kind, x, y, rot, world.modifiers.buildingHp, config);
   assignDrillOre(world, b);
   insertBuilding(world, b);

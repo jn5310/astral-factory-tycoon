@@ -16,6 +16,8 @@ export interface Projectile {
   pierce: number;
   /** Last enemy id hit (piercing rounds must not hit it again next tick). */
   lastHit: number;
+  /** Building id of the turret that fired (kill credit), 0 = none. */
+  owner: number;
   aoe: number;
   hitsAir: boolean;
   hitsGround: boolean;
@@ -41,6 +43,7 @@ function blank(): Projectile {
     damage: 0,
     pierce: 0,
     lastHit: 0,
+    owner: 0,
     aoe: 0,
     hitsAir: true,
     hitsGround: true,

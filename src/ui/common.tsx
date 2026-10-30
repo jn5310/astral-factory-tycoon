@@ -1,7 +1,8 @@
 import { useEffect, type ButtonHTMLAttributes, type ReactNode } from 'react';
-import { ITEMS, type ItemId, type ItemStack } from '../data/items';
+import type { ItemId, ItemStack } from '../data/items';
 import type { Inventory } from '../systems/inventory';
 import { compact } from '../utils/format';
+import { itemName, msg } from '../utils/i18n';
 import { itemIconUrl } from '../utils/itemIcons';
 import { IconX } from './Icons';
 
@@ -44,8 +45,8 @@ export function ItemIcon({ item, size = 20, className }: { item: ItemId; size?: 
       src={itemIconUrl(item)}
       width={size}
       height={size}
-      alt={ITEMS[item].name}
-      title={ITEMS[item].name}
+      alt={itemName(item)}
+      title={itemName(item)}
       draggable={false}
       className={cx('inline-block shrink-0', className)}
     />
@@ -126,13 +127,51 @@ export function Modal({ title, onClose, children, footer, wide }: ModalProps) {
       >
         <div className="flex items-center justify-between gap-2 border-b border-white/10 py-1 pl-4 pr-1">
           <h2 className="text-base font-bold text-cyan-100">{title}</h2>
-          <Button variant="ghost" onClick={onClose} aria-label="닫기">
+          <Button variant="ghost" onClick={onClose} aria-label={msg().common.close}>
             <IconX />
           </Button>
         </div>
         <div className="min-h-0 flex-1 overflow-auto overscroll-contain p-3 sm:p-4">{children}</div>
         {footer}
       </div>
+    </div>
+  );
+}
+
+interface SegmentedOption<T extends string> {
+  value: T;
+  label: string;
+}
+
+/** Row of mutually exclusive choices (radio group semantics). */
+export function Segmented<T extends string>({
+  options,
+  value,
+  onChange,
+  label,
+}: {
+  options: readonly SegmentedOption<T>[];
+  value: T;
+  onChange: (v: T) => void;
+  label: string;
+}) {
+  return (
+    <div role="radiogroup" aria-label={label} className="flex flex-wrap gap-1">
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          role="radio"
+          aria-checked={value === o.value}
+          onClick={() => onChange(o.value)}
+          className={cx(
+            'min-h-11 rounded-lg border px-3 text-sm font-semibold transition active:scale-95',
+            value === o.value ? 'border-cyan-300 bg-cyan-500/25 text-cyan-50' : 'border-white/10 bg-slate-900 text-slate-300',
+          )}
+        >
+          {o.label}
+        </button>
+      ))}
     </div>
   );
 }

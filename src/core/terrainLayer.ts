@@ -25,71 +25,75 @@ export function buildTerrainCanvas(world: World): HTMLCanvasElement {
   canvas.height = world.height * T;
   const g = canvas.getContext('2d');
   if (!g) return canvas;
-  const seed = world.seed;
 
   for (let y = 0; y < world.height; y++) {
-    for (let x = 0; x < world.width; x++) {
-      const t = terrainAt(world, x, y);
-      const px = x * T;
-      const py = y * T;
-      const n = hash2(x, y, seed);
-      if (t === Terrain.Water) {
-        const deep = hash2(x >> 2, y >> 2, seed + 1) * 0.12;
-        g.fillStyle = shade(WATER, -deep);
-        g.fillRect(px, py, T, T);
-        if (n < 0.35) {
-          g.fillStyle = 'rgba(125, 211, 252, 0.10)';
-          g.fillRect(px + 3, py + 4 + Math.floor(n * 20), 8, 1);
-        }
-        // Foam where the water meets land.
-        g.fillStyle = 'rgba(186, 230, 253, 0.22)';
-        if (terrainAt(world, x, y - 1) !== Terrain.Water && terrainAt(world, x, y - 1) !== -1) g.fillRect(px, py, T, 2);
-        if (terrainAt(world, x, y + 1) !== Terrain.Water && terrainAt(world, x, y + 1) !== -1) g.fillRect(px, py + T - 2, T, 2);
-        if (terrainAt(world, x - 1, y) !== Terrain.Water && terrainAt(world, x - 1, y) !== -1) g.fillRect(px, py, 2, T);
-        if (terrainAt(world, x + 1, y) !== Terrain.Water && terrainAt(world, x + 1, y) !== -1) g.fillRect(px + T - 2, py, 2, T);
-      } else if (t === Terrain.Rock) {
-        g.fillStyle = shade(ROCK, (n - 0.5) * 0.16);
-        g.fillRect(px, py, T, T);
-        g.fillStyle = 'rgba(0,0,0,0.25)';
-        g.fillRect(px + 2 + Math.floor(n * 8), py + 3, 1, 6);
-        g.fillRect(px + 4, py + 9 + Math.floor(n * 4), 7, 1);
-        g.fillStyle = 'rgba(255,255,255,0.07)';
-        g.fillRect(px + 1, py + 1, T - 2, 2);
-        // Ridge shadow onto lower plain ground gives the rock some height.
-        if (terrainAt(world, x, y + 1) === Terrain.Plain) {
-          g.fillStyle = 'rgba(0,0,0,0.35)';
-          g.fillRect(px, py + T - 3, T, 3);
-        }
-      } else {
-        g.fillStyle = shade(PLAIN, (n - 0.5) * 0.12);
-        g.fillRect(px, py, T, T);
-        g.fillStyle = 'rgba(255,255,255,0.035)';
-        g.fillRect(px + Math.floor(n * 12), py + Math.floor(hash2(y, x, seed) * 12), 2, 2);
-        g.fillStyle = 'rgba(0,0,0,0.12)';
-        g.fillRect(px + Math.floor(hash2(x, y, seed + 7) * 13), py + Math.floor(hash2(x, y, seed + 9) * 13), 2, 1);
-      }
-
-      const ore = world.ore[y * world.width + x] ?? Ore.None;
-      if (ore !== Ore.None) {
-        const color = ORE_COLOR[ore] ?? '#ffffff';
-        g.fillStyle = rgba(color, 0.12);
-        g.fillRect(px, py, T, T);
-        const count = 4 + Math.floor(n * 3);
-        for (let k = 0; k < count; k++) {
-          const ox = 2 + Math.floor(hash2(x * 7 + k, y, seed + 13) * (T - 6));
-          const oy = 2 + Math.floor(hash2(x, y * 7 + k, seed + 17) * (T - 6));
-          const sz = 2 + Math.floor(hash2(x + k, y + k, seed + 19) * 3);
-          g.fillStyle = shade(color, -0.35);
-          g.fillRect(ox + px, oy + py + 1, sz, sz);
-          g.fillStyle = color;
-          g.fillRect(ox + px, oy + py, sz, sz);
-          g.fillStyle = 'rgba(255,255,255,0.45)';
-          g.fillRect(ox + px, oy + py, 1, 1);
-        }
-      }
-    }
+    for (let x = 0; x < world.width; x++) drawTerrainTile(g, world, x, y);
   }
   return canvas;
+}
+
+/** Paints one tile (ground + ore) into the terrain texture. Used for the initial bake and meteor craters. */
+export function drawTerrainTile(g: CanvasRenderingContext2D, world: World, x: number, y: number): void {
+  const T = TERRAIN_PX;
+  const seed = world.seed;
+  const t = terrainAt(world, x, y);
+  const px = x * T;
+  const py = y * T;
+  const n = hash2(x, y, seed);
+  if (t === Terrain.Water) {
+    const deep = hash2(x >> 2, y >> 2, seed + 1) * 0.12;
+    g.fillStyle = shade(WATER, -deep);
+    g.fillRect(px, py, T, T);
+    if (n < 0.35) {
+      g.fillStyle = 'rgba(125, 211, 252, 0.10)';
+      g.fillRect(px + 3, py + 4 + Math.floor(n * 20), 8, 1);
+    }
+    // Foam where the water meets land.
+    g.fillStyle = 'rgba(186, 230, 253, 0.22)';
+    if (terrainAt(world, x, y - 1) !== Terrain.Water && terrainAt(world, x, y - 1) !== -1) g.fillRect(px, py, T, 2);
+    if (terrainAt(world, x, y + 1) !== Terrain.Water && terrainAt(world, x, y + 1) !== -1) g.fillRect(px, py + T - 2, T, 2);
+    if (terrainAt(world, x - 1, y) !== Terrain.Water && terrainAt(world, x - 1, y) !== -1) g.fillRect(px, py, 2, T);
+    if (terrainAt(world, x + 1, y) !== Terrain.Water && terrainAt(world, x + 1, y) !== -1) g.fillRect(px + T - 2, py, 2, T);
+  } else if (t === Terrain.Rock) {
+    g.fillStyle = shade(ROCK, (n - 0.5) * 0.16);
+    g.fillRect(px, py, T, T);
+    g.fillStyle = 'rgba(0,0,0,0.25)';
+    g.fillRect(px + 2 + Math.floor(n * 8), py + 3, 1, 6);
+    g.fillRect(px + 4, py + 9 + Math.floor(n * 4), 7, 1);
+    g.fillStyle = 'rgba(255,255,255,0.07)';
+    g.fillRect(px + 1, py + 1, T - 2, 2);
+    // Ridge shadow onto lower plain ground gives the rock some height.
+    if (terrainAt(world, x, y + 1) === Terrain.Plain) {
+      g.fillStyle = 'rgba(0,0,0,0.35)';
+      g.fillRect(px, py + T - 3, T, 3);
+    }
+  } else {
+    g.fillStyle = shade(PLAIN, (n - 0.5) * 0.12);
+    g.fillRect(px, py, T, T);
+    g.fillStyle = 'rgba(255,255,255,0.035)';
+    g.fillRect(px + Math.floor(n * 12), py + Math.floor(hash2(y, x, seed) * 12), 2, 2);
+    g.fillStyle = 'rgba(0,0,0,0.12)';
+    g.fillRect(px + Math.floor(hash2(x, y, seed + 7) * 13), py + Math.floor(hash2(x, y, seed + 9) * 13), 2, 1);
+  }
+
+  const ore = world.ore[y * world.width + x] ?? Ore.None;
+  if (ore !== Ore.None) {
+    const color = ORE_COLOR[ore] ?? '#ffffff';
+    g.fillStyle = rgba(color, 0.12);
+    g.fillRect(px, py, T, T);
+    const count = 4 + Math.floor(n * 3);
+    for (let k = 0; k < count; k++) {
+      const ox = 2 + Math.floor(hash2(x * 7 + k, y, seed + 13) * (T - 6));
+      const oy = 2 + Math.floor(hash2(x, y * 7 + k, seed + 17) * (T - 6));
+      const sz = 2 + Math.floor(hash2(x + k, y + k, seed + 19) * 3);
+      g.fillStyle = shade(color, -0.35);
+      g.fillRect(ox + px, oy + py + 1, sz, sz);
+      g.fillStyle = color;
+      g.fillRect(ox + px, oy + py, sz, sz);
+      g.fillStyle = 'rgba(255,255,255,0.45)';
+      g.fillRect(ox + px, oy + py, 1, 1);
+    }
+  }
 }
 
 /** 1 pixel per tile, for the minimap. */

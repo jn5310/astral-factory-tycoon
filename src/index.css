@@ -36,6 +36,12 @@ textarea {
   user-select: text;
 }
 
+/* Korean wraps between words, not in the middle of one. */
+:lang(ko) {
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}
+
 @keyframes rise {
   0% {
     transform: translateY(0);
@@ -47,6 +53,17 @@ textarea {
   100% {
     transform: translateY(-120vh);
     opacity: 0;
+  }
+}
+
+@keyframes radio-in {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
   }
 }
 

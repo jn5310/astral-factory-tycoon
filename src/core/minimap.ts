@@ -8,6 +8,7 @@ import type { World } from './World';
 export class MinimapRenderer {
   private base: HTMLCanvasElement | null = null;
   private baseWorld: World | null = null;
+  private baseVersion = -1;
   private time = 0;
   showPollution = false;
 
@@ -17,9 +18,10 @@ export class MinimapRenderer {
     const ctx = this.canvas.getContext('2d');
     if (!ctx) return;
     this.time += dt;
-    if (this.baseWorld !== world) {
+    if (this.baseWorld !== world || this.baseVersion !== world.terrainVersion) {
       this.base = buildMinimapBase(world);
       this.baseWorld = world;
+      this.baseVersion = world.terrainVersion;
     }
     const size = Math.min(this.canvas.width, this.canvas.height);
     const s = size / Math.max(world.width, world.height);
@@ -54,6 +56,21 @@ export class MinimapRenderer {
       ctx.fillStyle = e.type === 'leviathan' ? '#fb7185' : ENEMIES[e.type].flying ? '#f0abfc' : '#ef4444';
       const r = e.type === 'leviathan' ? dot * 2 : dot;
       ctx.fillRect(e.x * s - r / 2, e.y * s - r / 2, r, r);
+    }
+    for (const p of world.pickups) {
+      if (!p.landed) continue;
+      ctx.fillStyle = blink ? '#67e8f9' : '#ecfeff';
+      ctx.fillRect(p.x * s - dot, p.y * s - dot, dot * 2, dot * 2);
+    }
+    // Recent attacks ping as expanding red rings for a few seconds.
+    for (const a of world.alerts) {
+      const age = world.time - a.time;
+      if (age > 6) continue;
+      ctx.strokeStyle = `rgba(248,113,113,${1 - age / 6})`;
+      ctx.lineWidth = Math.max(1, size / 120);
+      ctx.beginPath();
+      ctx.arc(a.x * s, a.y * s, (2 + ((age * 6) % 8)) * s, 0, Math.PI * 2);
+      ctx.stroke();
     }
     const tl = camera.screenToWorld(0, 0);
     const br = camera.screenToWorld(camera.viewport.width, camera.viewport.height);

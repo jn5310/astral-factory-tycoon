@@ -1,4 +1,6 @@
-export type ParticleKind = 'spark' | 'smoke' | 'flash' | 'debris' | 'acid' | 'ring' | 'heal' | 'exhaust' | 'dust';
+import type { ItemId } from '../data/items';
+
+export type ParticleKind = 'spark' | 'smoke' | 'flash' | 'debris' | 'acid' | 'ring' | 'heal' | 'exhaust' | 'dust' | 'text';
 
 export interface Particle {
   active: boolean;
@@ -11,6 +13,9 @@ export interface Particle {
   maxLife: number;
   size: number;
   color: string;
+  /** Floating text ('text' kind only), optionally with an item icon. */
+  text: string;
+  item: ItemId | null;
 }
 
 /** Struct-of-objects pool reused for every visual particle (no per-frame allocation). */
@@ -30,6 +35,8 @@ export class ParticlePool {
       maxLife: 1,
       size: 0.1,
       color: '#ffffff',
+      text: '',
+      item: null as ItemId | null,
     }));
   }
 
@@ -47,6 +54,17 @@ export class ParticlePool {
     p.maxLife = life;
     p.size = size;
     p.color = color;
+    p.text = '';
+    p.item = null;
+  }
+
+  /** Rising "+3" style label (salvage, pickups). */
+  spawnText(x: number, y: number, text: string, color: string, item: ItemId | null = null): void {
+    this.spawn('text', x, y, 0, -0.9, 1.3, 0.5, color);
+    const p = this.items[(this.cursor - 1 + this.items.length) % this.items.length];
+    if (!p) return;
+    p.text = text;
+    p.item = item;
   }
 
   update(dt: number): void {
@@ -63,6 +81,8 @@ export class ParticlePool {
         p.vx *= 0.98;
         p.vy *= 0.98;
         p.size += dt * 0.35;
+      } else if (p.kind === 'text') {
+        p.vy *= 0.97;
       } else if (p.kind === 'debris' || p.kind === 'spark') {
         p.vx *= 0.93;
         p.vy *= 0.93;

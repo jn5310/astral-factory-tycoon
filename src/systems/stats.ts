@@ -13,6 +13,8 @@ export class StatsTracker {
   private produced: Inventory[] = [];
   private consumed: Inventory[] = [];
   private timer = 0;
+  /** Totals since the colony was founded (saved with the game; the buckets are not). */
+  readonly lifetime: Record<StatKind, Inventory> = { produced: {}, consumed: {} };
 
   constructor(bucketSeconds = 5, maxBuckets = 72) {
     this.bucketSeconds = bucketSeconds;
@@ -22,6 +24,8 @@ export class StatsTracker {
   }
 
   record(kind: StatKind, item: ItemId, n = 1): void {
+    const life = this.lifetime[kind];
+    life[item] = (life[item] ?? 0) + n;
     const list = kind === 'produced' ? this.produced : this.consumed;
     const bucket = list[list.length - 1];
     if (!bucket) return;
@@ -77,6 +81,17 @@ export class StatsTracker {
     const list = kind === 'produced' ? this.produced : this.consumed;
     let sum = 0;
     for (const b of list) sum += b[item] ?? 0;
+    return sum;
+  }
+
+  lifetimeTotal(kind: StatKind, item: ItemId): number {
+    return this.lifetime[kind][item] ?? 0;
+  }
+
+  /** Every item of one kind added up. */
+  lifetimeSum(kind: StatKind): number {
+    let sum = 0;
+    for (const id of ITEM_IDS) sum += this.lifetime[kind][id] ?? 0;
     return sum;
   }
 

@@ -36,7 +36,7 @@ function configOf(b: Building): Pick<BlueprintPart, 'recipe' | 'filter' | 'tunne
 }
 
 /** Captures every building whose top-left tile lies within the selection rectangle (inclusive). */
-export function captureBlueprint(world: World, ax: number, ay: number, bx: number, by: number, name = '청사진'): Blueprint {
+export function captureBlueprint(world: World, ax: number, ay: number, bx: number, by: number, name = 'Blueprint'): Blueprint {
   const minX = Math.min(ax, bx);
   const maxX = Math.max(ax, bx);
   const minY = Math.min(ay, by);

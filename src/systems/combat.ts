@@ -3,12 +3,16 @@ import { buildingCenter } from '../entities/Building';
 import { createEnemy, type Enemy } from '../entities/Enemy';
 import type { Projectile } from '../entities/Projectile';
 import { BUILDINGS } from '../data/buildings';
-import { MAX_ENEMIES } from '../data/constants';
+import { CORE_ITEM_CAPACITY, MAX_ENEMIES } from '../data/constants';
 import { armoredDamage, ENEMIES } from '../data/enemies';
-import { SLOW_DURATION, SLOW_FACTOR, TURRETS, ammoFor, type TurretDef } from '../data/turrets';
-import { buildingAt, playSound, pushEvent } from '../core/grid';
+import { RANK_DAMAGE_BONUS, SLOW_DURATION, SLOW_FACTOR, TURRETS, ammoFor, rankFor, type TurretDef } from '../data/turrets';
+import { buildingAt, playSound, pushEvent, toast } from '../core/grid';
 import { angleDiff, clamp, distSq, distToRect, segmentDistSq } from '../utils/math';
 import type { World } from '../core/World';
+import { buildingName, msg } from '../utils/i18n';
+import { isNightPhase } from './daynight';
+import { invAdd, invGet } from './inventory';
+import { salvageMultiplier } from './modifiers';
 import { removeBuilding } from './placement';
 
 const scratch: number[] = [];
@@ -17,17 +21,54 @@ const IDLE_POWER = 0.1;
 const ACID_SPEED = 7;
 const BROOD_SPLIT = 3;
 
-export function damageEnemy(world: World, e: Enemy, dmg: number, pierce = 0): void {
+/** `source` is the id of the turret that dealt the damage (kill credit), 0 for anything else. */
+export function damageEnemy(world: World, e: Enemy, dmg: number, pierce = 0, source = 0): void {
   if (e.dead) return;
   e.hp -= armoredDamage(dmg, ENEMIES[e.type].armor, pierce);
   e.hitFlash = 0.12;
-  if (e.hp <= 0) killEnemy(world, e);
+  if (e.hp <= 0) killEnemy(world, e, source);
 }
 
-export function killEnemy(world: World, e: Enemy): void {
+/** Salvage from a kill goes straight into the core. */
+export function grantSalvage(world: World, e: Enemy): void {
+  const mul = salvageMultiplier(world);
+  let shown = false;
+  for (const s of ENEMIES[e.type].salvage) {
+    const n = Math.max(1, Math.round(s.amount * mul));
+    const room = CORE_ITEM_CAPACITY - invGet(world.inventory, s.item);
+    const add = Math.max(0, Math.min(n, room));
+    if (add <= 0) continue;
+    invAdd(world.inventory, s.item, add);
+    world.counters.salvage += add;
+    if (world.visuals && !shown) {
+      world.particles.spawnText(e.x, e.y - 0.3, `+${add}`, '#fde68a', s.item);
+      shown = true;
+    }
+  }
+}
+
+/** Credits a kill to a turret and announces promotions. */
+function creditKill(world: World, sourceId: number): void {
+  const b = sourceId ? world.buildings.get(sourceId) : undefined;
+  const t = b?.turret;
+  if (!b || !t) return;
+  const before = rankFor(t.kills);
+  t.kills++;
+  const after = rankFor(t.kills);
+  if (after > before) {
+    toast(world, msg().toast.rankUp(buildingName(b.kind), msg().ranks[after] ?? ''), 'success');
+    pushEvent(world, { type: 'rankUp', buildingId: b.id, rank: after });
+    playSound(world, 'rankUp', b.x + b.size / 2, b.y + b.size / 2);
+  }
+}
+
+export function killEnemy(world: World, e: Enemy, source = 0): void {
   if (e.dead) return;
   e.dead = true;
   world.kills++;
+  if (e.type === 'leviathan') world.counters.bossKills++;
+  grantSalvage(world, e);
+  creditKill(world, source);
   pushEvent(world, { type: 'enemyKilled', enemy: e.type, x: e.x, y: e.y });
   if (e.type === 'brood') {
     // The brood splits into rushers when it dies.
@@ -50,10 +91,22 @@ export function killEnemy(world: World, e: Enemy): void {
   playSound(world, 'enemyDie', e.x, e.y);
 }
 
-export function damageBuilding(world: World, b: Building, dmg: number): void {
+const ALERT_INTERVAL = 12;
+
+/** `cause` 'enemy' raises the under-attack alert; meteors and other hazards pass 'environment'. */
+export function damageBuilding(world: World, b: Building, dmg: number, cause: 'enemy' | 'environment' = 'enemy'): void {
   if (dmg <= 0 || b.hp <= 0) return;
   b.hp -= dmg;
   b.hitFlash = 0.1;
+  if (cause === 'enemy' && world.time - world.lastAlertTime >= ALERT_INTERVAL) {
+    world.lastAlertTime = world.time;
+    const x = b.x + b.size / 2;
+    const y = b.y + b.size / 2;
+    world.alerts.push({ x, y, time: world.time });
+    if (world.alerts.length > 6) world.alerts.shift();
+    pushEvent(world, { type: 'underAttack', x, y });
+    toast(world, msg().toast.underAttack, 'danger', { x, y });
+  }
   if (b.hp > 0) return;
   if (world.visuals) {
     const c = buildingCenter(b);
@@ -75,6 +128,8 @@ export function damageBuilding(world: World, b: Building, dmg: number): void {
     }
     return;
   }
+  world.counters.buildingsLost++;
+  if (isNightPhase(world.dayPhase)) world.counters.nightLosses++;
   removeBuilding(world, b.id, { refund: false, silent: true });
   pushEvent(world, { type: 'destroyed', kind: b.kind, x: b.x, y: b.y });
 }
@@ -134,6 +189,11 @@ function muzzle(world: World, b: Building): void {
   world.particles.spawn('flash', c.x + Math.cos(b.turret.angle) * r, c.y + Math.sin(b.turret.angle) * r, 0, 0, 0.07, 0.3, '#fde68a');
 }
 
+/** Veterancy bonus for a turret's damage. */
+export function rankDamageMul(b: Building): number {
+  return 1 + RANK_DAMAGE_BONUS * rankFor(b.turret?.kills ?? 0);
+}
+
 function fireBullet(world: World, b: Building, def: TurretDef, damageMul: number, pierce: number): void {
   const t = b.turret;
   if (!t) return;
@@ -149,9 +209,10 @@ function fireBullet(world: World, b: Building, def: TurretDef, damageMul: number
     p.vy = Math.sin(ang) * def.projectileSpeed;
     p.life = def.range / def.projectileSpeed + 0.05;
     p.totalLife = p.life;
-    p.damage = def.damage * damageMul * world.modifiers.ammoDamage;
+    p.damage = def.damage * damageMul * world.modifiers.ammoDamage * rankDamageMul(b);
     p.pierce = pierce;
     p.lastHit = 0;
+    p.owner = b.id;
     p.aoe = 0;
     p.hitsAir = def.targetsAir;
     p.hitsGround = def.targetsGround;
@@ -173,8 +234,9 @@ function fireShell(world: World, b: Building, def: TurretDef, target: Enemy, pie
   p.vy = 0;
   p.life = travel;
   p.totalLife = travel;
-  p.damage = def.damage * world.modifiers.ammoDamage;
+  p.damage = def.damage * world.modifiers.ammoDamage * rankDamageMul(b);
   p.pierce = pierce;
+  p.owner = b.id;
   p.aoe = def.aoe;
   p.hitsAir = def.targetsAir;
   p.hitsGround = def.targetsGround;
@@ -198,6 +260,7 @@ export function fireAcid(world: World, e: Enemy, target: Building, damage: numbe
   p.totalLife = travel;
   p.damage = damage;
   p.pierce = 0;
+  p.owner = 0;
   p.aoe = splash;
   p.hitsAir = false;
   p.hitsGround = false;
@@ -236,7 +299,7 @@ function updateBeamTurret(world: World, b: Building, def: TurretDef, dt: number)
   b.demand = (BUILDINGS[b.kind].power?.use ?? 0) * (target ? 1 : IDLE_POWER);
   if (!target || b.satisfaction <= 0) return;
   rotateToward(b, target.x, target.y, def.turnSpeed, dt);
-  damageEnemy(world, target, def.damage * world.modifiers.laserDamage * b.satisfaction * dt, 999);
+  damageEnemy(world, target, def.damage * world.modifiers.laserDamage * rankDamageMul(b) * b.satisfaction * dt, 999, b.id);
   t.beamX = target.x;
   t.beamY = target.y;
   t.flash = 1;
@@ -260,7 +323,7 @@ function updateSlowTurret(world: World, b: Building, def: TurretDef, dt: number)
     const e = world.enemyById.get(id);
     if (!e || e.dead) continue;
     applySlow(e);
-    damageEnemy(world, e, def.damage * b.satisfaction, 0);
+    damageEnemy(world, e, def.damage * b.satisfaction * rankDamageMul(b), 0, b.id);
   }
   t.cooldown = def.fireInterval;
   t.flash = 1;
@@ -315,7 +378,7 @@ function explode(world: World, p: Projectile): void {
     if (!e || e.dead) continue;
     if (ENEMIES[e.type].flying ? !p.hitsAir : !p.hitsGround) continue;
     const falloff = 1 - clamp(Math.hypot(e.x - p.x, e.y - p.y) / p.aoe, 0, 1) * 0.6;
-    damageEnemy(world, e, p.damage * falloff, p.pierce);
+    damageEnemy(world, e, p.damage * falloff, p.pierce, p.owner);
   }
   if (world.visuals) {
     world.particles.spawn('flash', p.x, p.y, 0, 0, 0.3, p.aoe, '#fb923c');
@@ -390,7 +453,7 @@ export function updateProjectiles(world: World, dt: number): void {
       const r = e.radius + 0.15;
       if (segmentDistSq(p.px, p.py, p.x, p.y, e.x, e.y) > r * r) continue;
       p.lastHit = e.id;
-      damageEnemy(world, e, p.damage, p.pierce);
+      damageEnemy(world, e, p.damage, p.pierce, p.owner);
       if (world.visuals) world.particles.spawn('spark', p.x, p.y, -p.vx * 0.05, -p.vy * 0.05, 0.12, 0.1, '#fde68a');
       if (p.pierce > 0) {
         p.pierce--;

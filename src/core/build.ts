@@ -1,12 +1,16 @@
 import type { Building } from '../entities/Building';
-import { BUILDINGS, type BuildingKind, isConveyorKind } from '../data/buildings';
+import { ABILITIES, type AbilityId } from '../data/abilities';
+import { BUILDINGS, type BuildingKind, isConveyorKind, isCrafterKind } from '../data/buildings';
 import type { ItemId } from '../data/items';
 import type { RecipeId } from '../data/recipes';
+import { activateAbility } from '../systems/abilities';
 import { captureBlueprint, pasteBlueprint, planPaste, rotateBlueprint, type Blueprint } from '../systems/blueprint';
+import { collectPickup, pickupAt } from '../systems/director';
 import { planBeltPath, type LinePlacement } from '../systems/dragPath';
 import { invGet } from '../systems/inventory';
 import { canPlace, placeBuilding, placeOrReaim, removeBuilding, rotateBuilding } from '../systems/placement';
 import { setRecipe } from '../systems/production';
+import { msg } from '../utils/i18n';
 import { buildingAt, playSound, toast } from './grid';
 import type { Dir, TileXY } from './types';
 import type { World } from './World';
@@ -16,7 +20,8 @@ export type Tool =
   | { kind: 'build'; building: BuildingKind }
   | { kind: 'demolish' }
   | { kind: 'blueprintSelect' }
-  | { kind: 'blueprintPaste'; blueprint: Blueprint };
+  | { kind: 'blueprintPaste'; blueprint: Blueprint }
+  | { kind: 'target'; ability: AbilityId };
 
 export interface PreviewCell {
   x: number;
@@ -32,6 +37,8 @@ export interface Preview {
   rect?: { x0: number; y0: number; x1: number; y1: number };
   /** Tiles that will be demolished. */
   demolish?: TileXY[];
+  /** Area a targeted power will hit. */
+  target?: { x: number; y: number; radius: number; color: string };
 }
 
 type DragMode = 'none' | 'line' | 'paint' | 'demolish' | 'select';
@@ -125,6 +132,15 @@ export class BuildController {
     this.emit();
   }
 
+  /** "Build another": same kind, same facing, and crafters copy the selected recipe. */
+  buildSameAsSelected(): void {
+    const b = this.selected;
+    if (!b || !BUILDINGS[b.kind].buildable) return;
+    if (b.crafter?.recipe && isCrafterKind(b.kind)) this.world.lastRecipe[b.kind] = b.crafter.recipe;
+    this.rotation = b.rot;
+    this.setTool({ kind: 'build', building: b.kind });
+  }
+
   /** True when a one-finger drag edits the map; false when it should pan the camera. */
   consumesDrag(): boolean {
     return this.tool.kind === 'build' || this.tool.kind === 'demolish' || this.tool.kind === 'blueprintSelect';
@@ -132,7 +148,7 @@ export class BuildController {
 
   setSelectedRecipe(recipe: RecipeId | null): void {
     const b = this.selected;
-    if (b?.crafter && !setRecipe(this.world, b, recipe)) toast(this.world, '연구가 필요한 레시피입니다', 'warning');
+    if (b?.crafter && !setRecipe(this.world, b, recipe)) toast(this.world, msg().reasons.recipeLocked, 'warning');
     this.emit();
   }
 
@@ -199,23 +215,38 @@ export class BuildController {
     if (this.dragMode === 'line' && this.tool.kind === 'build') {
       this.commitLine(this.tool.building);
     } else if ((this.dragMode === 'paint' || this.dragMode === 'demolish') && this.lastPaint === null) {
-      // A tap without dragging.
       this.applyAt(this.dragStart ?? tile, true);
     } else if (this.dragMode === 'select') {
       const a = this.dragStart ?? tile;
       const b = this.dragTiles[1] ?? tile;
-      captured = captureBlueprint(this.world, a.x, a.y, b.x, b.y);
+      captured = captureBlueprint(this.world, a.x, a.y, b.x, b.y, msg().blueprint.defaultName(1));
       if (captured.parts.length === 0) {
         captured = null;
-        toast(this.world, '선택 영역에 복사할 건물이 없습니다', 'warning');
+        toast(this.world, msg().blueprint.emptySelection, 'warning');
       }
     } else if (this.dragMode === 'none') {
-      if (this.tool.kind === 'blueprintPaste') this.commitPaste(tile);
-      else if (this.tool.kind === 'inspect') this.selectedId = buildingAt(this.world, tile.x, tile.y)?.id ?? 0;
+      this.tap(tile);
     }
     this.cancelDrag();
     this.emit();
     return captured;
+  }
+
+  private tap(tile: TileXY): void {
+    const tool = this.tool;
+    if (tool.kind === 'blueprintPaste') {
+      this.commitPaste(tile);
+    } else if (tool.kind === 'target') {
+      if (activateAbility(this.world, tool.ability, { x: tile.x + 0.5, y: tile.y + 0.5 })) this.tool = { kind: 'inspect' };
+    } else if (tool.kind === 'inspect') {
+      // Supply pods sit on the ground and take priority over the building selection.
+      const pod = pickupAt(this.world, tile.x + 0.5, tile.y + 0.5);
+      if (pod) {
+        collectPickup(this.world, pod.id);
+        return;
+      }
+      this.selectedId = buildingAt(this.world, tile.x, tile.y)?.id ?? 0;
+    }
   }
 
   /** Drops an in-progress gesture without committing it (e.g. a second finger landed). */
@@ -279,8 +310,8 @@ export class BuildController {
     if (this.tool.kind !== 'blueprintPaste') return;
     const o = this.pasteOrigin(tile, this.tool.blueprint);
     const res = pasteBlueprint(this.world, this.tool.blueprint, o.x, o.y);
-    if (res.placed === 0) toast(this.world, '청사진을 붙여넣을 수 없습니다(자원/공간 부족)', 'warning');
-    else toast(this.world, `청사진 배치: ${res.placed}개 설치${res.skipped ? `, ${res.skipped}개 생략` : ''}`, 'success');
+    if (res.placed === 0) toast(this.world, msg().blueprint.pasteFailed, 'warning');
+    else toast(this.world, msg().blueprint.pasted(res.placed, res.skipped), 'success');
   }
 
   // --- Preview for the renderer ---
@@ -302,13 +333,14 @@ export class BuildController {
         placements = [{ x: o.x, y: o.y, rot: this.rotation }];
       } else placements = [];
       // Track affordability cumulatively so a long drag shows where the resources run out.
+      const free = world.settings.mode === 'sandbox';
       const budget = new Map<ItemId, number>();
       for (const s of def.cost) budget.set(s.item, invGet(world.inventory, s.item));
       const cells = placements.map((p) => {
         const existing = buildingAt(world, p.x, p.y);
         if (existing && existing.kind === kind && isConveyorKind(kind)) return { ...p, kind, ok: true };
         let ok = canPlace(world, kind, p.x, p.y).ok;
-        if (ok) {
+        if (ok && !free) {
           ok = def.cost.every((s) => (budget.get(s.item) ?? 0) >= s.amount);
           if (ok) for (const s of def.cost) budget.set(s.item, (budget.get(s.item) ?? 0) - s.amount);
         }
@@ -327,6 +359,10 @@ export class BuildController {
       if (a && b) return { cells: [], rect: { x0: Math.min(a.x, b.x), y0: Math.min(a.y, b.y), x1: Math.max(a.x, b.x), y1: Math.max(a.y, b.y) } };
     }
     if (tool.kind === 'demolish' && this.hover) return { cells: [], demolish: [this.hover] };
+    if (tool.kind === 'target' && this.hover) {
+      const def = ABILITIES[tool.ability];
+      return { cells: [], target: { x: this.hover.x + 0.5, y: this.hover.y + 0.5, radius: def.radius, color: def.color } };
+    }
     return { cells: [] };
   }
 }

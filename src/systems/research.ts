@@ -2,11 +2,13 @@ import type { Building } from '../entities/Building';
 import { BUILDINGS, STARTING_BUILDINGS, type BuildingKind } from '../data/buildings';
 import { LAB_ITEM_CAP, LAB_TIME_PER_ITEM } from '../data/constants';
 import type { ItemId } from '../data/items';
-import { RECIPES, type RecipeId } from '../data/recipes';
+import type { RecipeId } from '../data/recipes';
 import { RESEARCH, RESEARCH_BY_ID, type ResearchDef } from '../data/research';
 import { playSound, pushEvent, toast } from '../core/grid';
 import type { World } from '../core/World';
+import { buildingName, msg, recipeName, researchName } from '../utils/i18n';
 import { invAdd, invGet, type Inventory } from './inventory';
+import { productionBoost } from './modifiers';
 
 export interface ResearchState {
   completed: Set<string>;
@@ -135,11 +137,8 @@ export function completeResearch(world: World, id: string): void {
       b.hp = Math.min(b.maxHp, Math.round(b.hp * ratio));
     }
   }
-  const unlocked = [
-    ...def.buildings.map((k) => BUILDINGS[k].name),
-    ...def.recipes.map((r) => RECIPES[r].name),
-  ];
-  toast(world, `연구 완료: ${def.name}${unlocked.length ? ` (${unlocked.join(', ')})` : ''}`, 'success');
+  const unlocked = [...def.buildings.map(buildingName), ...def.recipes.map(recipeName)];
+  toast(world, msg().toast.researchDone(researchName(def.id), unlocked.join(', ')), 'success');
   pushEvent(world, { type: 'researchComplete', id });
   playSound(world, 'research', world.width / 2, world.height / 2);
 }
@@ -173,7 +172,7 @@ export function updateLab(world: World, b: Building, dt: number): void {
   b.demand = BUILDINGS.lab.power?.use ?? 0;
   if (b.satisfaction <= 0) return;
   b.active = true;
-  lab.progress += (dt * b.satisfaction) / LAB_TIME_PER_ITEM;
+  lab.progress += (dt * b.satisfaction * productionBoost(world)) / LAB_TIME_PER_ITEM;
   if (lab.progress >= 1) {
     lab.progress -= 1;
     invAdd(lab.items, needed.item, -1);

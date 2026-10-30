@@ -2,20 +2,28 @@ import type { Building } from '../entities/Building';
 import { createBuilding } from '../entities/Building';
 import type { Enemy } from '../entities/Enemy';
 import { ParticlePool } from '../entities/Particle';
+import type { Pickup } from '../entities/Pickup';
 import { ProjectilePool } from '../entities/Projectile';
-import { MAP_SIZE, START_PHASE } from '../data/constants';
+import { CORE_ITEM_CAPACITY, MAP_SIZE, START_PHASE } from '../data/constants';
+import { DIFFICULTY, defaultSettings, type Difficulty, type GameMode, type GameSettings, type Mutator } from '../data/difficulty';
+import { ITEM_IDS, type ItemId } from '../data/items';
+import { MISSIONS } from '../data/missions';
 import type { CrafterKind, RecipeId } from '../data/recipes';
+import { RESEARCH_IDS } from '../data/research';
 import { Terrain } from '../data/terrain';
+import { createAbilityState, type AbilityState } from '../systems/abilities';
+import { createDirectorState, type DirectorState } from '../systems/director';
 import type { Inventory } from '../systems/inventory';
+import { createMissionState, type MissionState } from '../systems/missions';
 import { PathService } from '../systems/pathfinding';
+import { insertBuilding } from '../systems/placement';
 import { createPollution, type PollutionState } from '../systems/pollution';
 import { createPowerState, type PowerState } from '../systems/power';
 import { Quadtree } from '../systems/quadtree';
-import { createResearchState, type ResearchState } from '../systems/research';
+import { createResearchState, recomputeModifiers, type ResearchState } from '../systems/research';
 import { StatsTracker } from '../systems/stats';
 import { generateTerrain } from '../systems/terrain';
 import { createWaveState, type WaveState } from '../systems/waves';
-import { insertBuilding } from '../systems/placement';
 import { Rng } from '../utils/rng';
 import type { GameEvent } from './events';
 import type { TileXY } from './types';
@@ -34,14 +42,45 @@ export interface LaunchState {
   siloId: number;
 }
 
+/** Run statistics used by missions, achievements and the score. */
+export interface Counters {
+  nightsSurvived: number;
+  bossKills: number;
+  buildingsLost: number;
+  /** Buildings lost during the current night. */
+  nightLosses: number;
+  /** Attack nights survived without losing a building. */
+  cleanNights: number;
+  dropsCollected: number;
+  meteorShowers: number;
+  salvage: number;
+  /** Highest generating capacity reached, in kW. */
+  peakPower: number;
+  launches: number;
+  /** Day of the first rocket launch (0 = none yet). */
+  launchDay: number;
+}
+
+export interface AttackAlert {
+  x: number;
+  y: number;
+  time: number;
+}
+
 export type WorldState = 'playing' | 'victory' | 'defeat';
 
 export interface World {
   width: number;
   height: number;
   seed: number;
+  settings: GameSettings;
   terrain: Uint8Array;
   ore: Uint8Array;
+  /** Ore tiles changed after generation (meteor deposits), so saves can restore them. */
+  oreEdits: Map<number, number>;
+  /** Tiles whose look changed since the renderer last redrew them. */
+  terrainEdits: number[];
+  terrainVersion: number;
   /** Building id per tile (0 = empty). */
   occupancy: Int32Array;
   buildings: Map<number, Building>;
@@ -65,6 +104,14 @@ export interface World {
   power: PowerState;
   pollution: PollutionState;
   waves: WaveState;
+  missions: MissionState;
+  abilities: AbilityState;
+  director: DirectorState;
+  pickups: Pickup[];
+  nextPickupId: number;
+  counters: Counters;
+  alerts: AttackAlert[];
+  lastAlertTime: number;
   stats: StatsTracker;
   modifiers: Modifiers;
   /** Incremented whenever buildings change; invalidates cached paths. */
@@ -94,6 +141,10 @@ export interface CreateWorldOptions {
   withCore?: boolean;
   /** Give the default starting resources (default true for generated maps). */
   startingItems?: boolean;
+  mode?: GameMode;
+  difficulty?: Difficulty;
+  mutator?: Mutator;
+  dailyKey?: string | null;
 }
 
 export const STARTING_INVENTORY: Inventory = {
@@ -107,14 +158,41 @@ export const STARTING_INVENTORY: Inventory = {
   basic_ammo: 60,
 };
 
+/** Sandbox mode fills the core with this much of every item. */
+export const SANDBOX_STOCK = 20000;
+
 export function defaultModifiers(): Modifiers {
   return { drillSpeed: 1, ammoDamage: 1, laserDamage: 1, buildingHp: 1, generatorOutput: 1 };
+}
+
+export function createCounters(): Counters {
+  return {
+    nightsSurvived: 0,
+    bossKills: 0,
+    buildingsLost: 0,
+    nightLosses: 0,
+    cleanNights: 0,
+    dropsCollected: 0,
+    meteorShowers: 0,
+    salvage: 0,
+    peakPower: 0,
+    launches: 0,
+    launchDay: 0,
+  };
 }
 
 export function createWorld(opts: CreateWorldOptions): World {
   const width = opts.width ?? MAP_SIZE;
   const height = opts.height ?? MAP_SIZE;
   const flat = opts.flat ?? false;
+  const settings: GameSettings = {
+    ...defaultSettings(),
+    mode: opts.mode ?? 'standard',
+    difficulty: opts.difficulty ?? 'normal',
+    mutator: opts.mutator ?? 'none',
+    dailyKey: opts.dailyKey ?? null,
+  };
+  const sandbox = settings.mode === 'sandbox';
   let terrain: Uint8Array;
   let ore: Uint8Array;
   let nests: TileXY[];
@@ -135,8 +213,12 @@ export function createWorld(opts: CreateWorldOptions): World {
     width,
     height,
     seed: opts.seed,
+    settings,
     terrain,
     ore,
+    oreEdits: new Map(),
+    terrainEdits: [],
+    terrainVersion: 0,
     occupancy: new Int32Array(width * height),
     buildings: new Map(),
     nextId: 1,
@@ -156,6 +238,14 @@ export function createWorld(opts: CreateWorldOptions): World {
     power: createPowerState(),
     pollution: createPollution(width, height),
     waves: createWaveState(),
+    missions: createMissionState(!sandbox),
+    abilities: createAbilityState(sandbox),
+    director: createDirectorState(settings),
+    pickups: [],
+    nextPickupId: 1,
+    counters: createCounters(),
+    alerts: [],
+    lastAlertTime: -Infinity,
     stats: new StatsTracker(),
     modifiers: defaultModifiers(),
     mapVersion: 0,
@@ -178,7 +268,16 @@ export function createWorld(opts: CreateWorldOptions): World {
     world.coreId = core.id;
   }
   if (opts.startingItems ?? !flat) {
-    world.inventory = { ...STARTING_INVENTORY };
+    const mul = DIFFICULTY[settings.difficulty].startMul;
+    for (const [item, n] of Object.entries(STARTING_INVENTORY) as [ItemId, number][]) {
+      world.inventory[item] = Math.round(n * mul);
+    }
+  }
+  if (sandbox) {
+    for (const id of RESEARCH_IDS) world.research.completed.add(id);
+    recomputeModifiers(world);
+    for (const id of ITEM_IDS) world.inventory[id] = Math.min(CORE_ITEM_CAPACITY, SANDBOX_STOCK);
+    world.missions.index = MISSIONS.length;
   }
   return world;
 }

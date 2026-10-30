@@ -1,5 +1,7 @@
 import { createContext, useContext, useSyncExternalStore, type ReactNode } from 'react';
 import type { Game } from '../core/Game';
+import type { Messages } from '../data/locales/types';
+import { getLang, msg, onLangChange } from '../utils/i18n';
 
 const GameContext = createContext<Game | null>(null);
 
@@ -17,4 +19,10 @@ export function useGame(): Game {
 export function useGameVersion(): number {
   const game = useGame();
   return useSyncExternalStore(game.subscribe, game.getVersion, game.getVersion);
+}
+
+/** Strings for the current language; re-renders when the player switches language. */
+export function useMsg(): Messages {
+  useSyncExternalStore(onLangChange, getLang, getLang);
+  return msg();
 }

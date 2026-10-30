@@ -27,22 +27,6 @@ export const ORE_ITEM: Record<number, ItemId | undefined> = {
   [Ore.Titanium]: 'titanium_ore',
 };
 
-export const ORE_NAME: Record<number, string> = {
-  [Ore.None]: '없음',
-  [Ore.Iron]: '철',
-  [Ore.Copper]: '구리',
-  [Ore.Coal]: '석탄',
-  [Ore.Stone]: '돌',
-  [Ore.Sand]: '실리콘 모래',
-  [Ore.Titanium]: '티타늄',
-};
-
-export const TERRAIN_NAME: Record<number, string> = {
-  [Terrain.Plain]: '평지',
-  [Terrain.Water]: '물',
-  [Terrain.Rock]: '암석 지대',
-};
-
 /** Minimap / terrain base colors. */
 export const TERRAIN_COLOR: Record<number, string> = {
   [Terrain.Plain]: '#2a2f3a',

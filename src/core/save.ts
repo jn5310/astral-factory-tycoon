@@ -1,12 +1,17 @@
 import { createBuilding, type Building, type BuildingConfig, type TransitItem } from '../entities/Building';
 import { createEnemy } from '../entities/Enemy';
 import { isBuildingKind } from '../data/buildings';
-import { MAX_IMPORT_BYTES, SAVE_KEY, SAVE_VERSION } from '../data/constants';
+import { MAX_IMPORT_BYTES, MIN_SAVE_VERSION, SAVE_KEY, SAVE_VERSION } from '../data/constants';
+import { ABILITY_IDS, isAbilityId } from '../data/abilities';
+import { isDifficulty, isGameMode, isMutator } from '../data/difficulty';
+import { MISSIONS } from '../data/missions';
+import { WORLD_EVENTS, isWorldEventId } from '../data/worldEvents';
 import { isEnemyType } from '../data/enemies';
 import { isItemId, type ItemId } from '../data/items';
 import { isRecipeId } from '../data/recipes';
 import { isResearchId } from '../data/research';
-import { createWorld, defaultModifiers, type World } from './World';
+import { createWorld, defaultModifiers, type Counters, type World } from './World';
+import { spawnPickup } from '../systems/director';
 import { assignDrillOre, insertBuilding } from '../systems/placement';
 import { recomputeModifiers } from '../systems/research';
 import type { Inventory } from '../systems/inventory';
@@ -31,6 +36,15 @@ export interface SaveData {
   lastRecipe: Record<string, string>;
   buildings: SaveBuilding[];
   enemies: SaveEnemy[];
+  // --- v2 (all optional so v1 saves still load) ---
+  settings?: { mode: string; difficulty: string; mutator: string; dailyKey: string | null };
+  missions?: { index: number; baseline: number };
+  abilities?: { unlocked: string[]; cooldown: Record<string, number>; overclock: number; used: string[] };
+  director?: { timer: number; effect: { id: string; timeLeft: number; total: number } | null; bloodMoon: boolean };
+  pickups?: { x: number; y: number; loot: [string, number][]; fall: number; life: number; landed: boolean }[];
+  counters?: Partial<Record<keyof Counters, number>>;
+  oreEdits?: [number, number][];
+  lifetime?: { produced: Inventory; consumed: Inventory };
 }
 
 interface SaveBuilding {
@@ -48,7 +62,7 @@ interface SaveBuilding {
   accumulator?: number;
   lab?: { items: Inventory; progress: number };
   silo?: { buffer: number; installed: number; progress: number };
-  turret?: { ammoItem: string | null; ammo: number };
+  turret?: { ammoItem: string | null; ammo: number; kills?: number };
   sorter?: { filter: string | null; alt: number };
   inserter?: { phase: number; progress: number; held: string | null; filter: string | null };
   router?: { item: string | null; timer: number; from: number; rr: number };
@@ -91,7 +105,7 @@ function serializeBuilding(b: Building): SaveBuilding {
   if (b.accumulator) sb.accumulator = b.accumulator.stored;
   if (b.lab) sb.lab = { items: { ...b.lab.items }, progress: b.lab.progress };
   if (b.silo) sb.silo = { buffer: b.silo.buffer, installed: b.silo.installed, progress: b.silo.progress };
-  if (b.turret) sb.turret = { ammoItem: b.turret.ammoItem, ammo: b.turret.ammo };
+  if (b.turret) sb.turret = { ammoItem: b.turret.ammoItem, ammo: b.turret.ammo, kills: b.turret.kills };
   if (b.sorter) sb.sorter = { filter: b.sorter.filter, alt: b.sorter.alt };
   if (b.inserter) {
     sb.inserter = { phase: b.inserter.phase, progress: b.inserter.progress, held: b.inserter.held, filter: b.inserter.filter };
@@ -126,6 +140,30 @@ export function serializeWorld(world: World): SaveData {
     pollution: Array.from(world.pollution.values),
     launch: { ...world.launch },
     lastRecipe,
+    settings: { ...world.settings },
+    missions: { index: world.missions.index, baseline: world.missions.baseline },
+    abilities: {
+      unlocked: [...world.abilities.unlocked],
+      cooldown: { ...world.abilities.cooldown },
+      overclock: world.abilities.overclock,
+      used: [...world.abilities.used],
+    },
+    director: {
+      timer: world.director.timer,
+      effect: world.director.effect ? { ...world.director.effect } : null,
+      bloodMoon: world.director.bloodMoon,
+    },
+    pickups: world.pickups.map((p) => ({
+      x: p.x,
+      y: p.y,
+      loot: p.loot.map((s) => [s.item, s.amount] as [string, number]),
+      fall: p.fall,
+      life: p.life,
+      landed: p.landed,
+    })),
+    counters: { ...world.counters },
+    oreEdits: [...world.oreEdits.entries()],
+    lifetime: { produced: { ...world.stats.lifetime.produced }, consumed: { ...world.stats.lifetime.consumed } },
     buildings: [...world.buildings.values()].map(serializeBuilding),
     enemies: world.enemies
       .filter((e) => !e.dead)
@@ -189,6 +227,7 @@ function restoreBuilding(world: World, sb: SaveBuilding): void {
   if (b.turret && sb.turret) {
     b.turret.ammoItem = sb.turret.ammoItem && isItemId(sb.turret.ammoItem) ? sb.turret.ammoItem : null;
     b.turret.ammo = Math.max(0, Math.floor(num(sb.turret.ammo, 0)));
+    b.turret.kills = Math.max(0, Math.floor(num(sb.turret.kills, 0)));
   }
   if (b.sorter && sb.sorter) b.sorter.alt = sb.sorter.alt === 1 ? 1 : 0;
   if (b.inserter && sb.inserter) {
@@ -217,16 +256,87 @@ function restoreBuilding(world: World, sb: SaveBuilding): void {
   insertBuilding(world, b);
 }
 
+/** Missions, powers, events, pickups and counters (v2). Missing pieces keep their defaults. */
+function restoreRunState(world: World, d: Partial<SaveData>): void {
+  if (d.missions) {
+    world.missions.index = Math.max(0, Math.min(MISSIONS.length, Math.floor(num(d.missions.index, 0))));
+    world.missions.baseline = Math.max(0, num(d.missions.baseline, 0));
+  }
+  if (d.abilities) {
+    const a = d.abilities;
+    if (Array.isArray(a.unlocked)) world.abilities.unlocked = [...new Set(a.unlocked.filter(isAbilityId))];
+    if (Array.isArray(a.used)) world.abilities.used = [...new Set(a.used.filter(isAbilityId))];
+    if (a.cooldown && typeof a.cooldown === 'object') {
+      for (const id of ABILITY_IDS) world.abilities.cooldown[id] = Math.max(0, num(a.cooldown[id], 0));
+    }
+    world.abilities.overclock = Math.max(0, num(a.overclock, 0));
+  }
+  if (d.director) {
+    world.director.timer = Math.max(1, num(d.director.timer, world.director.timer));
+    world.director.bloodMoon = d.director.bloodMoon === true;
+    const e = d.director.effect;
+    if (e && isWorldEventId(e.id) && WORLD_EVENTS[e.id].duration > 0) {
+      world.director.effect = { id: e.id, timeLeft: Math.max(0, num(e.timeLeft, 0)), total: Math.max(1, num(e.total, 1)) };
+    }
+  }
+  if (Array.isArray(d.pickups)) {
+    for (const p of d.pickups.slice(0, 8)) {
+      if (!p || !Array.isArray(p.loot)) continue;
+      const loot = p.loot
+        .filter((s): s is [string, number] => Array.isArray(s) && isItemId(s[0]))
+        .map((s) => ({ item: s[0] as ItemId, amount: Math.max(1, Math.floor(num(s[1], 1))) }));
+      const x = num(p.x, -1);
+      const y = num(p.y, -1);
+      if (loot.length === 0 || x < 0 || y < 0 || x >= world.width || y >= world.height) continue;
+      const pod = spawnPickup(world, x, y, loot);
+      pod.fall = Math.max(0, num(p.fall, 0));
+      pod.life = Math.max(1, num(p.life, 60));
+      pod.landed = p.landed === true || pod.fall <= 0;
+    }
+  }
+  if (d.counters && typeof d.counters === 'object') {
+    const c = world.counters;
+    for (const key of Object.keys(c) as (keyof Counters)[]) c[key] = Math.max(0, num(d.counters[key], c[key]));
+  }
+  if (d.lifetime) {
+    const life = world.stats.lifetime;
+    Object.assign(life.produced, cleanInventory(d.lifetime.produced));
+    Object.assign(life.consumed, cleanInventory(d.lifetime.consumed));
+  }
+}
+
 /** Rebuilds a World from save data. Returns null when the data is not a usable save. */
 export function deserializeWorld(data: unknown): World | null {
   if (typeof data !== 'object' || data === null) return null;
   const d = data as Partial<SaveData>;
-  if (d.version !== SAVE_VERSION) return null;
+  if (typeof d.version !== 'number' || d.version < MIN_SAVE_VERSION || d.version > SAVE_VERSION) return null;
   if (typeof d.seed !== 'number' || typeof d.width !== 'number' || typeof d.height !== 'number') return null;
   if (d.width < 8 || d.width > 512 || d.height < 8 || d.height > 512) return null;
   if (!Array.isArray(d.buildings)) return null;
 
-  const world = createWorld({ seed: d.seed, width: d.width, height: d.height, withCore: false, startingItems: false });
+  const s = d.settings;
+  const world = createWorld({
+    seed: d.seed,
+    width: d.width,
+    height: d.height,
+    withCore: false,
+    startingItems: false,
+    mode: s && isGameMode(s.mode) ? s.mode : 'standard',
+    difficulty: s && isDifficulty(s.difficulty) ? s.difficulty : 'normal',
+    mutator: s && isMutator(s.mutator) ? s.mutator : 'none',
+    dailyKey: s && typeof s.dailyKey === 'string' ? s.dailyKey.slice(0, 10) : null,
+  });
+  // Meteor deposits are the only terrain change after generation.
+  if (Array.isArray(d.oreEdits)) {
+    for (const e of d.oreEdits) {
+      if (!Array.isArray(e)) continue;
+      const idx = Math.floor(num(e[0], -1));
+      const ore = Math.floor(num(e[1], -1));
+      if (idx < 0 || idx >= world.ore.length || ore < 0 || ore > 6) continue;
+      world.ore[idx] = ore;
+      world.oreEdits.set(idx, ore);
+    }
+  }
   world.time = num(d.time, 0);
   world.day = Math.max(1, Math.floor(num(d.day, 1)));
   world.dayPhase = ((num(d.dayPhase, 0) % 1) + 1) % 1;
@@ -278,6 +388,7 @@ export function deserializeWorld(data: unknown): World | null {
       }
     }
   }
+  restoreRunState(world, d);
   if (Array.isArray(d.enemies)) {
     for (const se of d.enemies) {
       if (!se || !isEnemyType(se.type)) continue;
@@ -336,7 +447,8 @@ export function loadFromStorage(storage: Storage): World | null {
   }
 }
 
-export function hasSave(storage: Storage): boolean {
+export function hasSave(storage: Storage | null): boolean {
+  if (!storage) return false;
   try {
     return storage.getItem(SAVE_KEY) !== null;
   } catch {

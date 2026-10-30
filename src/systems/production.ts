@@ -8,6 +8,7 @@ import { oreAt } from '../core/grid';
 import type { World } from '../core/World';
 import { invAdd, invAddAll, invEntries, invHasAll, invRemoveAll } from './inventory';
 import { crafterOutputFull, dumpCrafterOutput, dumpItem } from './logistics';
+import { drillMultiplier, productionBoost } from './modifiers';
 import { emitPollution } from './pollution';
 import { isRecipeUnlocked } from './research';
 
@@ -52,14 +53,14 @@ export function updateDrill(world: World, b: Building, dt: number): void {
   b.demand = 0;
   if (d.ore && d.oreTiles > 0 && d.output < DRILL_OUTPUT_CAP) {
     const electric = b.kind === 'electric_drill';
-    let speed = 1;
+    let speed = productionBoost(world);
     if (electric) {
       b.demand = BUILDINGS[b.kind].power?.use ?? 0;
-      speed = b.satisfaction;
+      speed *= b.satisfaction;
     }
     if (speed > 0) {
       b.active = true;
-      const time = drillTime(b.kind, d.oreTiles, b.size) / world.modifiers.drillSpeed;
+      const time = drillTime(b.kind, d.oreTiles, b.size) / (world.modifiers.drillSpeed * drillMultiplier(world));
       d.progress += (dt * speed) / time;
       while (d.progress >= 1 && d.output < DRILL_OUTPUT_CAP) {
         d.progress -= 1;
@@ -102,9 +103,10 @@ export function updateCrafter(world: World, b: Building, dt: number): void {
     if (c.crafting) {
       b.demand = BUILDINGS[b.kind].power?.use ?? 0;
       if (b.satisfaction > 0) {
+        const speed = b.satisfaction * productionBoost(world);
         b.active = true;
-        c.progress += dt * b.satisfaction;
-        b.anim += dt * b.satisfaction;
+        c.progress += dt * speed;
+        b.anim += dt * speed;
         emitPollution(world.pollution, b.x, b.y, (BUILDINGS[b.kind].pollution ?? 0) * dt * b.satisfaction);
         if (c.progress >= rec.time) {
           invAddAll(c.output, rec.outputs);

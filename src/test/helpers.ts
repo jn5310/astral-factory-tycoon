@@ -2,6 +2,7 @@ import type { Building, BuildingConfig } from '../entities/Building';
 import type { BuildingKind } from '../data/buildings';
 import { SIM_DT } from '../data/constants';
 import type { ItemId } from '../data/items';
+import { MISSIONS } from '../data/missions';
 import { RESEARCH } from '../data/research';
 import { stepWorld } from '../core/engine';
 import { createWorld, type World } from '../core/World';
@@ -19,6 +20,9 @@ export function testWorld(size = 32, opts: { core?: boolean } = {}): World {
   w.visuals = false;
   w.waves.triggered = true;
   for (const n of RESEARCH) w.research.completed.add(n.id);
+  // Keep unit tests deterministic: no mission rewards, no random events.
+  w.missions.index = MISSIONS.length;
+  w.director.timer = 1e9;
   return w;
 }
 

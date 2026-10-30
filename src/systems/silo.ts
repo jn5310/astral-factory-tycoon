@@ -3,6 +3,8 @@ import { BUILDINGS } from '../data/buildings';
 import { LAUNCH_DURATION, ROCKET_PARTS_REQUIRED, SILO_ASSEMBLY_TIME } from '../data/constants';
 import { playSound, pushEvent, toast } from '../core/grid';
 import type { World } from '../core/World';
+import { msg } from '../utils/i18n';
+import { productionBoost } from './modifiers';
 
 /** Assembles buffered rocket parts into the rocket; 1,000 parts start the launch. */
 export function updateSilo(world: World, b: Building, dt: number): void {
@@ -16,7 +18,7 @@ export function updateSilo(world: World, b: Building, dt: number): void {
     if (b.satisfaction > 0) {
       b.active = true;
       b.anim += dt;
-      s.progress += (dt * b.satisfaction) / SILO_ASSEMBLY_TIME;
+      s.progress += (dt * b.satisfaction * productionBoost(world)) / SILO_ASSEMBLY_TIME;
       while (s.progress >= 1 && s.buffer > 0 && s.installed < ROCKET_PARTS_REQUIRED) {
         s.progress -= 1;
         s.buffer--;
@@ -36,7 +38,7 @@ export function startLaunch(world: World, b: Building): void {
   world.launch.siloId = b.id;
   pushEvent(world, { type: 'launchStart' });
   playSound(world, 'launch', b.x + b.size / 2, b.y + b.size / 2);
-  toast(world, '로켓 조립 완료! 궤도 탈출 카운트다운 시작!', 'success');
+  toast(world, msg().toast.launch, 'success');
 }
 
 export function updateLaunch(world: World, dt: number): void {
@@ -64,6 +66,8 @@ export function updateLaunch(world: World, dt: number): void {
   }
   if (l.timer >= LAUNCH_DURATION && world.state === 'playing') {
     world.state = 'victory';
+    world.counters.launches++;
+    if (world.counters.launchDay === 0) world.counters.launchDay = world.day;
     if (silo?.silo) silo.silo.installed = 0;
     l.active = false;
     pushEvent(world, { type: 'victory' });
