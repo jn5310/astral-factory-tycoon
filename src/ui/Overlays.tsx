@@ -111,7 +111,7 @@ function ScoreTable() {
               <dd className="text-right tabular-nums">{integer(v)}</dd>
             </div>
           ))}
-        <dt className="text-slate-400">{m.score.multiplier(String(s.multiplier))}</dt>
+        <dt className="text-slate-400">{m.score.multiplier(m.difficulties[game.world.settings.difficulty].name)}</dt>
         <dd className="text-right tabular-nums">×{s.multiplier}</dd>
       </dl>
       <div className="mt-2 flex items-baseline justify-between border-t border-white/10 pt-2">

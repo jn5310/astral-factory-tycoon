@@ -356,7 +356,7 @@ export interface Messages {
     missions: string;
     victory: string;
     speed: string;
-    multiplier: (x: string) => string;
+    multiplier: (difficulty: string) => string;
     total: string;
     highScores: string;
     none: string;

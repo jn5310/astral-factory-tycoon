@@ -610,7 +610,7 @@ export const ko: Messages = {
     missions: '임무',
     victory: '탈출 보너스',
     speed: '속도 보너스',
-    multiplier: (x) => `난이도 ×${x}`,
+    multiplier: (difficulty) => `난이도: ${difficulty}`,
     total: '합계',
     highScores: '최고 기록',
     none: '아직 기록이 없습니다',

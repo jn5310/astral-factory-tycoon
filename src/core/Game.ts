@@ -18,7 +18,7 @@ import { InputController } from './input';
 import { MinimapRenderer } from './minimap';
 import { loadProfile, recordScore, saveProfile, type Profile } from './profile';
 import { Renderer } from './renderer';
-import { getStorage, saveToStorage } from './save';
+import { getStorage, loadFromStorage, saveToStorage } from './save';
 import type { TileXY } from './types';
 import { coreCenter, createWorld, type World } from './World';
 
@@ -296,6 +296,12 @@ export class Game {
 
   quitToTitle(): void {
     if (this.world.state === 'playing') this.save();
+    else {
+      // A lost colony is never autosaved, so the last save is still playable: offer it as "Continue".
+      const storage = getStorage();
+      const saved = storage ? loadFromStorage(storage) : null;
+      if (saved && saved.state === 'playing') this.loadWorld(saved);
+    }
     this.build.setTool({ kind: 'inspect' });
     this.screen = 'title';
     this.speed = 0;
@@ -417,7 +423,7 @@ export class Game {
       return;
     }
     this.toasts.push({ id: this.nextToastId++, message, level, expires: now + 4000, focus });
-    if (this.toasts.length > 4) this.toasts.shift();
+    if (this.toasts.length > 3) this.toasts.shift();
     this.notify();
   }
 

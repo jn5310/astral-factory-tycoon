@@ -617,7 +617,7 @@ export const en: Messages = {
     missions: 'Missions',
     victory: 'Escape bonus',
     speed: 'Speed bonus',
-    multiplier: (x) => `Difficulty ×${x}`,
+    multiplier: (difficulty) => `Difficulty: ${difficulty}`,
     total: 'Total',
     highScores: 'High scores',
     none: 'No scores yet',
