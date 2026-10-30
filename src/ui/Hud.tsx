@@ -43,6 +43,9 @@ export function Hud() {
       setOverlay('help');
     }
   });
+  useEffect(() => {
+    game.panelOpen = overlay !== 'none';
+  }, [game, overlay]);
   if (game.screen === 'title') {
     return (
       <div className="pointer-events-none absolute inset-0">

@@ -85,7 +85,10 @@ export function TitleScreen({ onOpen }: { onOpen: (o: Overlay) => void }) {
   useGameVersion();
   const m = useMsg();
   const [setup, setSetup] = useState(false);
-  const canContinue = hasSave(getStorage()) && game.world.state === 'playing';
+  const [dailyConfirm, setDailyConfirm] = useState(false);
+  const existing = hasSave(getStorage());
+  const canContinue = existing && game.world.state === 'playing';
+  const startDaily = (): void => game.startNewGame({ mode: 'daily', difficulty: 'normal' });
   const today = dailyKey(new Date());
   const twist = dailyMutator(today);
   const best = game.profile.dailyBest[today];
@@ -133,7 +136,8 @@ export function TitleScreen({ onOpen }: { onOpen: (o: Overlay) => void }) {
           </Button>
           <button
             type="button"
-            onClick={() => game.startNewGame({ mode: 'daily', difficulty: 'normal' })}
+            // One save slot: never replace a colony without asking.
+            onClick={() => (existing ? setDailyConfirm(true) : startDaily())}
             className="flex min-h-14 w-full items-center gap-3 rounded-xl border border-amber-300/40 bg-amber-950/50 px-3 py-2 text-left transition active:scale-[0.98]"
           >
             <IconCalendar className="h-6 w-6 shrink-0 text-amber-300" />
@@ -183,6 +187,14 @@ export function TitleScreen({ onOpen }: { onOpen: (o: Overlay) => void }) {
         </p>
       </div>
       {setup && <NewGameSetup onClose={() => setSetup(false)} />}
+      {dailyConfirm && (
+        <Modal title={m.setup.daily(today)} onClose={() => setDailyConfirm(false)}>
+          <p className="rounded-lg bg-amber-950/50 p-2 text-sm text-amber-200">{m.setup.discardWarn}</p>
+          <Button variant="primary" className="mt-3 w-full text-base" onClick={startDaily}>
+            <IconPlay /> {m.setup.start}
+          </Button>
+        </Modal>
+      )}
     </div>
   );
 }

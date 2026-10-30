@@ -369,7 +369,6 @@ export const en: Messages = {
     needOre: 'Place it on an ore deposit',
     needOreMech: 'Place it on ore (titanium needs an electric drill)',
     lacking: 'Not enough resources',
-    lineFailed: "Couldn't place anything here. Check resources and terrain.",
     recipeLocked: 'That recipe needs research first',
   },
 
@@ -534,7 +533,6 @@ export const en: Messages = {
     dailyBest: (score) => `Today's best: ${score}`,
     dailyNone: 'No score yet today',
     mutator: "Today's twist",
-    seedLocked: 'Daily runs use the date as the seed.',
     landed: (seed) => `Landed on a new planet (seed ${seed})`,
   },
 
@@ -687,7 +685,6 @@ export const en: Messages = {
 
   eventsUi: {
     active: (name, seconds) => `${name} · ${seconds}s`,
-    bloodMoon: 'Blood moon tonight',
   },
 
   achievementsUi: {

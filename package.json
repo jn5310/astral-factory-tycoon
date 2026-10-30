@@ -1,7 +1,7 @@
 {
   "name": "astral-factory-tycoon",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Zero-asset space colony factory automation & tower defense tycoon (TypeScript + Canvas + React + Tailwind).",
   "type": "module",
   "scripts": {

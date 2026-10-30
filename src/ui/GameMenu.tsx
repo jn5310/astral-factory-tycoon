@@ -13,6 +13,7 @@ export function GameMenu({ onClose, onOpen }: { onClose: () => void; onOpen: (o:
   const t = m.menu;
   const fileRef = useRef<HTMLInputElement>(null);
   const storage = getStorage();
+  const run = game.world.settings;
 
   const ago = (): string => {
     if (!game.lastSaveAt) return t.never;
@@ -100,7 +101,19 @@ export function GameMenu({ onClose, onOpen }: { onClose: () => void; onOpen: (o:
             }}
           />
         </section>
-        <p className="text-xs text-slate-400">{t.autosave(ago(), game.world.seed)}</p>
+        <p className="text-xs text-slate-400">
+          <span className="font-semibold text-cyan-100">
+            {[
+              m.modes[run.mode].name,
+              run.mode !== 'sandbox' && m.difficulties[run.difficulty].name,
+              run.mutator !== 'none' && `${m.mutators[run.mutator].name}: ${m.mutators[run.mutator].desc}`,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </span>
+          <br />
+          {t.autosave(ago(), game.world.seed)}
+        </p>
         <section className="grid grid-cols-2 gap-2">
           <Button onClick={() => onOpen('settings')}>
             <IconSettings /> {t.settings}

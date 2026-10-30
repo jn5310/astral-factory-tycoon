@@ -63,6 +63,13 @@ export const researchName = (id: ResearchId): string => msg().research[id].name;
 export const enemyName = (type: EnemyType): string => msg().enemies[type].name;
 export const abilityName = (id: AbilityId): string => msg().abilities[id].name;
 
+/** How long a radio line stays up. A Hangul syllable takes about as long to read as two Latin letters. */
+export function readingMs(text: string): number {
+  let units = 0;
+  for (const ch of text) units += ch >= '\uac00' && ch <= '\ud7a3' ? 2 : 1;
+  return Math.max(6000, units * 70);
+}
+
 /** "12 Iron Plate, 3 Gear" style list for toasts. */
 export function stacksText(stacks: readonly ItemStack[]): string {
   return stacks.map((s) => `${s.amount} ${itemName(s.item)}`).join(', ');

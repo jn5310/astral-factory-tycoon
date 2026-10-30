@@ -102,12 +102,15 @@ export function CodexPanel({ onClose }: { onClose: () => void }) {
                     <dd>{def.armor}</dd>
                     <dd>{def.speed}</dd>
                     <dt className="text-slate-500">{c.damage}</dt>
-                    <dt className="text-slate-500">{c.range}</dt>
-                    <dt className="text-slate-500">{def.flying ? c.flying : c.ground}</dt>
+                    <dt className="col-span-2 text-slate-500">{c.range}</dt>
                     <dd>{def.damage}</dd>
-                    <dd>{def.range || '-'}</dd>
-                    <dd>{c.firstNight(def.firstNight)}</dd>
+                    <dd className="col-span-2">{def.range || '-'}</dd>
                   </dl>
+                )}
+                {known && (
+                  <p className="mt-1 text-[11px] text-slate-300">
+                    {def.flying ? c.flying : c.ground} · {c.firstNight(def.firstNight)}
+                  </p>
                 )}
                 {known && (
                   <div className="mt-1 flex items-center gap-1 text-[11px] text-slate-400">

@@ -363,7 +363,6 @@ export const ko: Messages = {
     needOre: '광맥 위에 설치하세요',
     needOreMech: '광맥 위에 설치하세요 (티타늄은 전기 드릴 필요)',
     lacking: '자원 부족',
-    lineFailed: '설치할 수 없습니다. 자원과 지형을 확인하세요.',
     recipeLocked: '연구가 필요한 레시피입니다',
   },
 
@@ -527,7 +526,6 @@ export const ko: Messages = {
     dailyBest: (score) => `오늘 최고 점수: ${score}`,
     dailyNone: '오늘은 아직 기록이 없습니다',
     mutator: '오늘의 변수',
-    seedLocked: '일일 도전은 날짜를 시드로 사용합니다.',
     landed: (seed) => `새 행성에 착륙했습니다 (시드 ${seed})`,
   },
 
@@ -680,7 +678,6 @@ export const ko: Messages = {
 
   eventsUi: {
     active: (name, seconds) => `${name} · ${seconds}초`,
-    bloodMoon: '오늘 밤 붉은 달',
   },
 
   achievementsUi: {

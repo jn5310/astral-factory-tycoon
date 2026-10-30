@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { en } from '../data/locales/en';
 import { ko } from '../data/locales/ko';
 import type { Messages } from '../data/locales/types';
-import { detectLang, getLang, msg, onLangChange, setLang } from '../utils/i18n';
+import { detectLang, getLang, msg, onLangChange, readingMs, setLang } from '../utils/i18n';
 
 const HANGUL = /[\uAC00-\uD7A3\u3130-\u318F]/;
 
@@ -66,6 +66,16 @@ describe('localization', () => {
     expect(detectLang(['fr-FR', 'ko'])).toBe('ko');
     expect(detectLang(['ja-JP'])).toBe('en');
     expect(detectLang([])).toBe('en');
+  });
+
+  it('gives a radio line about the same reading time in both languages', () => {
+    expect(readingMs('Hi')).toBe(6000);
+    expect(readingMs('a'.repeat(100))).toBe(7000);
+    expect(readingMs('가'.repeat(50))).toBe(7000);
+    const enIntro = readingMs(en.radio.intro);
+    const koIntro = readingMs(ko.radio.intro);
+    expect(koIntro / enIntro).toBeGreaterThan(0.6);
+    expect(koIntro / enIntro).toBeLessThan(1.4);
   });
 
   it('switches language at runtime and notifies listeners', () => {

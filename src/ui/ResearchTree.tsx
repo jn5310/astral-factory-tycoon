@@ -45,6 +45,36 @@ function NodeDetail({ id }: { id: string }) {
         <span className="text-[11px] text-slate-400">{t.status[status]}</span>
       </div>
       <p className="mt-1 text-xs text-slate-300">{m.research[def.id].desc}</p>
+      {/* The action comes first so it stays visible on short phone screens. */}
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        {status === 'available' && (
+          <Button
+            variant="primary"
+            onClick={() => {
+              game.uiClick('research');
+              setCurrentResearch(w, id);
+              game.notify();
+            }}
+          >
+            {t.start}
+          </Button>
+        )}
+        {status === 'current' && (
+          <>
+            <Button
+              onClick={() => {
+                setCurrentResearch(w, null);
+                game.notify();
+              }}
+            >
+              {t.stop}
+            </Button>
+            <span className="text-xs text-amber-200">{t.feedHint}</span>
+          </>
+        )}
+        {status === 'locked' && <span className="text-xs text-slate-400">{t.needs(missing.join(', '))}</span>}
+        {status === 'completed' && <span className="text-xs text-emerald-300">{t.done}</span>}
+      </div>
       <div className="mt-2 grid grid-cols-2 gap-1 sm:grid-cols-3">
         {def.cost.map((c) => {
           const have = status === 'completed' ? c.amount : Math.min(c.amount, invGet(prog, c.item));
@@ -83,35 +113,6 @@ function NodeDetail({ id }: { id: string }) {
             {t.effects[e.key]} +{Math.round(e.value * 100)}%
           </span>
         ))}
-      </div>
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        {status === 'available' && (
-          <Button
-            variant="primary"
-            onClick={() => {
-              game.uiClick('research');
-              setCurrentResearch(w, id);
-              game.notify();
-            }}
-          >
-            {t.start}
-          </Button>
-        )}
-        {status === 'current' && (
-          <>
-            <Button
-              onClick={() => {
-                setCurrentResearch(w, null);
-                game.notify();
-              }}
-            >
-              {t.stop}
-            </Button>
-            <span className="text-xs text-amber-200">{t.feedHint}</span>
-          </>
-        )}
-        {status === 'locked' && <span className="text-xs text-slate-400">{t.needs(missing.join(', '))}</span>}
-        {status === 'completed' && <span className="text-xs text-emerald-300">{t.done}</span>}
       </div>
     </div>
   );

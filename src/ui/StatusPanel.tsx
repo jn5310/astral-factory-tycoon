@@ -71,7 +71,7 @@ export function EventChip() {
   const m = useMsg();
   const d = game.world.director;
   return (
-    <div className="flex flex-col items-start gap-1">
+    <div className="flex max-w-[min(17rem,calc(100vw_-_10.5rem))] flex-col items-start gap-1">
       {d.effect && (
         <div className="rounded-lg border border-amber-300/40 bg-amber-950/80 px-2 py-1 text-[11px] font-semibold text-amber-100" role="status">
           {m.eventsUi.active(m.worldEvents[d.effect.id].name, Math.ceil(d.effect.timeLeft))}
@@ -80,7 +80,7 @@ export function EventChip() {
       )}
       {d.bloodMoon && (
         <div className="flex items-center gap-1 rounded-lg border border-red-400/50 bg-red-950/85 px-2 py-1 text-[11px] font-semibold text-red-100" role="status">
-          <IconMoon className="h-3.5 w-3.5 text-red-400" /> {m.eventsUi.bloodMoon} · {m.worldEvents.bloodMoon.desc}
+          <IconMoon className="h-3.5 w-3.5 shrink-0 text-red-400" /> {m.worldEvents.bloodMoon.name} · {m.worldEvents.bloodMoon.desc}
         </div>
       )}
       {d.meteors.length > 0 && (

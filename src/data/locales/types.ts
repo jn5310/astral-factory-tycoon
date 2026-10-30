@@ -130,7 +130,6 @@ export interface Messages {
     needOre: string;
     needOreMech: string;
     lacking: string;
-    lineFailed: string;
     recipeLocked: string;
   };
 
@@ -288,7 +287,6 @@ export interface Messages {
     dailyBest: (score: string) => string;
     dailyNone: string;
     mutator: string;
-    seedLocked: string;
     landed: (seed: number) => string;
   };
 
@@ -423,7 +421,6 @@ export interface Messages {
 
   eventsUi: {
     active: (name: string, seconds: number) => string;
-    bloodMoon: string;
   };
 
   achievementsUi: {

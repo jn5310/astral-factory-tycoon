@@ -204,6 +204,8 @@ export function meteorImpact(world: World, m: MeteorFall): void {
   }
   pushEvent(world, { type: 'shake', strength: 0.55 });
   playSound(world, 'meteor', m.x, m.y);
+  // Same text every impact, so the HUD keeps one toast and its "View" follows the latest crater.
+  toast(world, msg().toast.meteorImpact, 'info', { x: m.x, y: m.y });
 }
 
 export function updateDirector(world: World, dt: number): void {

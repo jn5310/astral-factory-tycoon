@@ -6,7 +6,7 @@ import { checkAchievements } from '../systems/achievements';
 import { isNightPhase } from '../systems/daynight';
 import { computeScore, type ScoreBreakdown } from '../systems/score';
 import { dailyKey, dailyMutator, dailySeed } from '../utils/daily';
-import { detectLang, enemyName, getLang, isLang, msg, setLang, type Lang } from '../utils/i18n';
+import { detectLang, enemyName, getLang, isLang, msg, readingMs, setLang, type Lang } from '../utils/i18n';
 import { MusicEngine, type MusicMood } from '../utils/music';
 import { randomSeed } from '../utils/rng';
 import { SoundEngine } from '../utils/sound';
@@ -134,6 +134,8 @@ export class Game {
   pendingBlueprint: Blueprint | null = null;
   /** Ask the HUD to open the how-to-play sheet once (first ever run). */
   pendingHelp = false;
+  /** Set by the HUD while a panel covers the map; the radio line waits instead of expiring unseen. */
+  panelOpen = false;
   lastSaveAt = 0;
   fps = 60;
   showPollution = false;
@@ -442,7 +444,7 @@ export class Game {
   private nextRadio(): void {
     const text = this.radioQueue.shift();
     if (text === undefined) return;
-    this.radio = { id: this.nextRadioId++, text, expires: performance.now() + Math.max(6000, text.length * 70) };
+    this.radio = { id: this.nextRadioId++, text, expires: performance.now() + readingMs(text) };
     this.notify();
   }
 
@@ -497,6 +499,7 @@ export class Game {
         this.save();
       }
     }
+    if (this.panelOpen && this.radio) this.radio.expires += dt * 1000;
     this.uiTimer += dt;
     if (this.uiTimer >= 0.125) {
       this.uiTimer = 0;
