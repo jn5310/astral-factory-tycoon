@@ -17,6 +17,7 @@ Session handoff report, as required by `MASTER_GDD.md` §5.
 | Enemies / defense | `src/systems/pathfinding.ts` (A*, binary heap, PathService cache and per-tick budget), `enemyAI.ts`, `combat.ts`, `waves.ts`, `pollution.ts`, `quadtree.ts` |
 | UI | `src/ui/*` (TopBar, BuildBar, Inspector, ResearchTree, StatsPanel, Minimap/ZoomControls, GameMenu, BlueprintPanel, Overlays) |
 | Tests | `src/test/*.test.ts`: 112 tests |
+| Deploy | `.github/workflows/deploy-pages.yml`: tests, builds and publishes `dist/` to GitHub Pages on every push to `main` (needs Settings → Pages → Source: GitHub Actions, set once) |
 
 ## Open items / next session
 

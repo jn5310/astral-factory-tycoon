@@ -3,6 +3,8 @@
 A mobile-first browser game: space-colony factory automation plus tower defense, in the spirit of Mindustry and Factorio.
 It uses no image or sound files. Every graphic is drawn on an HTML5 Canvas and every sound is synthesized with the Web Audio API.
 
+**▶ Play:** https://jn5310.github.io/astral-factory-tycoon/ (phone or desktop browser, redeployed automatically on every push to `main`)
+
 **Stack:** TypeScript (strict) · React 19 · HTML5 Canvas 2D · Tailwind CSS 4 · Vite · Vitest
 
 ```bash
