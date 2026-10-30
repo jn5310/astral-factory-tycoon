@@ -1,0 +1,15 @@
+import { useEffect, useRef } from 'react';
+import { useGame } from './GameContext';
+
+/** The world canvas. The Game owns the render loop; React only provides the element. */
+export function GameCanvas() {
+  const game = useGame();
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return undefined;
+    game.mount(canvas);
+    return () => game.unmount();
+  }, [game]);
+  return <canvas ref={ref} className="absolute inset-0 block h-full w-full touch-none" aria-label="게임 화면: 공장 지도" />;
+}
