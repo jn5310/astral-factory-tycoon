@@ -1,60 +1,101 @@
 # Astral Factory Tycoon
 
-A mobile-first browser game: space-colony factory automation plus tower defense, in the spirit of Mindustry and Factorio.
-It uses no image or sound files. Every graphic is drawn on an HTML5 Canvas and every sound is synthesized with the Web Audio API.
+**Build the factory. Survive the night. Escape the planet.**
 
-**▶ Play:** https://jn5310.github.io/astral-factory-tycoon/ (phone or desktop browser, redeployed automatically on every push to `main`)
+A mobile-first browser game that mixes factory automation and tower defense, in the spirit of Mindustry and Factorio. You land on the alien world Astra IV, mine ore, automate production with belts, hold off the swarms that attack every night, and launch an escape rocket built from 1,000 parts.
 
-**Stack:** TypeScript (strict) · React 19 · HTML5 Canvas 2D · Tailwind CSS 4 · Vite · Vitest
+The game ships no image or sound files. Every graphic is drawn on an HTML5 Canvas, and every sound effect and music track is synthesized live with the Web Audio API.
+
+**▶ Play in your browser:** https://jn5310.github.io/astral-factory-tycoon/
+Works on phones and desktops. Free, no ads, no tracking, no account. English and Korean (한국어).
+
+[한국어 README](README.ko.md) · [Changelog](CHANGELOG.md) · [Store listing copy](docs/STORE_LISTING.md)
+
+## Features
+
+**Factory and logistics**
+- 120×120 seeded planet with 6 ores (iron, copper, coal, stone, silicon sand, titanium), water and rock.
+- 30 items and 24 recipes, from ore to plates, gears, circuits, batteries, processors and rocket parts.
+- 8 logistics blocks: conveyor, fast conveyor, router, bridge, underground tunnel, filter sorter, storage container and inserter. A blocked belt backs up item by item.
+- Smart drag builder: drag a finger and it lays straight belts and corners in one stroke.
+- Blueprints: copy an area, name it, paste it anywhere, rotate it.
+- Power grid with thermal generators, solar panels, accumulators and poles. An overloaded grid slows every machine on it.
+- A 35-node research tree across 5 tiers.
+
+**Defense**
+- 8 alien species, from packs of rushers to the Leviathan boss that comes every fifth night, with A* pathfinding that walks around walls and breaks through the weakest one.
+- 6 turret types plus walls. Bullet turrets need ammo delivered by belt; lasers, cryo and repair turrets run on power.
+- Pollution spreads from your machines. When it reaches a nest, the aliens raid even in daylight.
+- Turrets earn ranks (Rookie, Veteran, Elite, Ace) from their kills, and each rank adds 15% damage.
+- Killed aliens drop salvage into the core.
+
+**Campaign and replay**
+- 24-mission campaign that doubles as the tutorial, with Mission Control radio lines and rewards.
+- 4 commander powers unlocked through missions: Orbital Strike, Repair Nanites, Overclock and Cryo Pulse.
+- 6 random events: meteor showers that leave rich ore, supply pods you tap to collect, solar flares, dust storms, ore surges and blood moons.
+- 3 modes: Campaign, Sandbox (everything unlocked, free building) and a Daily Challenge (same planet and twist for everyone that day).
+- 5 difficulties from Peaceful to Nightmare, with score multipliers.
+- Score breakdown, local top-10 high scores, best daily score and a "share screenshot" button.
+- 21 achievements and an alien codex that fills in as you meet new species.
+- Adaptive music that shifts between calm, tense and boss themes.
+- Autosave every 60 seconds and when you leave the page, plus JSON export and import.
+
+## Controls
+
+| Action | Touch | Desktop |
+|---|---|---|
+| Move the map | One-finger drag in select mode | Drag |
+| Zoom | Pinch, or the slider on the right | Mouse wheel, `+` / `-` |
+| Build a line | Pick a building, then drag | Same |
+| Inspect, set recipes and filters | Tap a building | Click |
+| Rotate | Rotate button | `R` (`Shift+R` reverses) |
+| Demolish | Trash button, then tap or drag | `X` |
+| Blueprint | Blueprint button, then drag over an area | `B` |
+| Pause | Pause button | `Space` |
+| Cancel | Hand (select) button | `Esc`, right-click |
+| Pollution map | Tap the pollution readout in the top bar | `P` |
+
+## Run it locally
+
+Requires Node.js 22.
 
 ```bash
 npm install
 npm run dev      # dev server
-npm test         # Vitest unit tests (112 tests)
-npm run build    # tsc type-check + production build into dist/
+npm test         # Vitest unit tests (147 tests in 10 suites)
+npm run build    # type-check + production build into dist/
 ```
 
-## Gameplay
+`dist/` uses relative paths (`base: './'`), so the same build runs on GitHub Pages, itch.io or any static host. Every push to `main` is tested, built and deployed to GitHub Pages by `.github/workflows/deploy-pages.yml`.
 
-Mine ore → automate logistics with belts → defend against alien raids every night → complete 35 research nodes → feed **1,000 rocket parts** into the **orbital escape silo** to launch the rocket and win.
+**Stack:** TypeScript (strict) · React 19 · HTML5 Canvas 2D · Tailwind CSS 4 · Vite · Vitest. No other runtime dependencies.
 
-| System | Implementation |
-|---|---|
-| Map | 120×120 tiles, seeded Perlin fBm terrain (plain, water, rock) with 6 minerals: iron, copper, coal, stone, silicon sand, titanium. A starter area around the core is guaranteed, and every nest is guaranteed a walkable route to the core. |
-| Touch controls | One-finger pan, two-finger pinch zoom + pan, vertical zoom slider on the right, minimap tap to jump |
-| Smart drag builder | In build mode, dragging a finger detects direction and lays straight belts and corner curves in one stroke. Dragging over existing belts re-aims them. The preview turns red where resources run out. |
-| Blueprints | Drag-select an area, name and save it (localStorage), paste it elsewhere with a tap, rotate 90°. Recipes, filters and tunnel modes are kept. |
-| Logistics (8) | Conveyor and fast conveyor, router (1:1 splitter), bridge (jumps over belts and water), underground tunnel, filter sorter, storage container, inserter. A blocked front makes the queue behind it back up item by item. |
-| Production | 30 items, 24 recipes: ore → plates/glass/brick/steel/silicon → gears/wire/circuits/batteries/engines/alloy → AP/explosive ammo, energy cells, processors, rocket parts |
-| Power | Thermal generator (burns coal), solar (daytime only), accumulator (stores surplus), power pole (3-tile supply radius, auto-wires within 8 tiles). Live generation / consumption / battery gauge. An overloaded grid slows every machine on it proportionally. |
-| Research | 5 tiers × 7 = 35 nodes, visual tree. Items delivered to labs by belt or inserter drive progress. |
-| Enemies (8) | Rusher, armored charger, acid spitter (ranged), wall-breaker bomber, flyer, brood (splits on death), healer, Leviathan boss (every 5th night). Ground units use A* pathfinding. They walk around walls and break through the weakest one when sealed in. |
-| Pollution | Working machines emit pollution that spreads across 8×8 chunks. It scales night waves, and polluted nests raid even in daylight. |
-| Defense | Ammo turrets fed by belt (machine gun, shotgun, long-range cannon), powered laser and slow turrets, auto-repair turret, stone and reinforced walls, built-in core gun |
-| Presentation | Rotating gears, furnace glow, moving belt items, tracers and explosion particles, day/night lighting, Web Audio machine hum and combat sounds |
-| Dashboard | Per-minute production/consumption line chart, minimap radar, autosave every 60 s and on page hide, JSON export/import |
-
-## Project layout (per `MASTER_GDD.md`)
+## Project layout
 
 ```
 src/
-├── core/       game loop (Game), stepWorld, camera, input, build controller, renderer, minimap, save/load
-├── entities/   Building, Enemy, Projectile/Particle (object pools)
-├── systems/    belts, logistics, production, power, research, pathfinding (A*), enemy AI, combat,
-│               waves, pollution, quadtree, stats, blueprint, drag path, placement, terrain
-├── data/       items, recipes, buildings, research tree, enemies, turrets, constants
-├── ui/         React HUD (top bar, build bar, inspector, research tree, stats, menus)
-├── utils/      math, RNG, Perlin noise, formatters, Web Audio synth, canvas helpers, item icons
-├── test/       Vitest suites
-└── App.tsx
+├── core/       game loop (Game), stepWorld, camera, input, build controller, renderer, minimap, save/load, profile
+├── entities/   Building, Enemy, Projectile/Particle (object pools), Pickup
+├── systems/    belts, logistics, production, power, research, pathfinding (A*), enemy AI, combat, waves,
+│               pollution, missions, commander powers, random events (director), achievements, score, ...
+├── data/       items, recipes, buildings, research, enemies, turrets, missions, events, difficulty, locales/
+├── ui/         React HUD (title screen, top bar, build bar, inspector, research tree, panels, overlays)
+├── utils/      i18n, math, RNG, Perlin noise, formatters, Web Audio sound and music, share, daily seed
+└── test/       Vitest suites
 ```
 
 The simulation is a deterministic fixed 60 Hz step (`stepWorld` in `src/core/engine.ts`) that never touches the DOM. The browser loop and the tests drive the same code.
 
+## Localization
+
+All player-facing text lives in `src/data/locales/`. `types.ts` defines the `Messages` interface, and `en.ts` and `ko.ts` implement it. Entries are plain strings or small formatter functions, so plurals and word order stay correct in each language. The game picks the browser language on first launch, and the choice can be changed on the title screen or in Settings.
+
+To add a language: copy `en.ts`, translate it, register it in `LANGS` and `MESSAGES` in `src/utils/i18n.ts`, and add it to `isLang`. The test suite checks that every locale has exactly the same keys and no empty strings.
+
 ## Tests
 
-`npm test` runs 112 Vitest tests across 8 suites: belt movement and congestion, the logistics blocks, the power balance and grid splitting, recipes and the research tree's data consistency, A* (optimality against a brute-force Dijkstra, no corner cutting, weighted terrain), enemy AI, terrain generation, the drag builder, blueprints, save/load validation, and victory.
+`npm test` runs 147 tests across 10 suites. They cover belt movement and congestion, every logistics block, the power balance and grid splitting, recipe and research data consistency, A* (optimality against brute-force Dijkstra, no corner cutting, weighted terrain), enemy AI, terrain generation, the drag builder, blueprints, save/load validation including v1 saves, missions, commander powers, random events, salvage and ranks, difficulty and the daily challenge, score, achievements and the profile, adaptive music patterns, and both locales.
 
-## Controls (desktop)
+## Privacy
 
-Mouse wheel zoom · drag to pan · **R** rotate · **X** demolish · **B** blueprint · **Space** pause · **Esc** / right-click cancel · **P** pollution overlay
+The game makes no network requests after it loads. It has no analytics, ads or accounts. Saves, settings, high scores and achievements stay in your browser's localStorage. Clearing site data deletes them, so use **Menu → Export JSON** to keep a backup.
