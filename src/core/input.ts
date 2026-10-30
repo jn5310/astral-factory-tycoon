@@ -41,7 +41,7 @@ export class InputController {
     canvas.addEventListener('pointerdown', this.onDown);
     canvas.addEventListener('pointermove', this.onMove);
     canvas.addEventListener('pointerup', this.onUp);
-    canvas.addEventListener('pointercancel', this.onUp);
+    canvas.addEventListener('pointercancel', this.onCancel);
     canvas.addEventListener('pointerleave', this.onLeave);
     canvas.addEventListener('wheel', this.onWheel, { passive: false });
     canvas.addEventListener('contextmenu', this.onContextMenu);
@@ -53,7 +53,7 @@ export class InputController {
     canvas.removeEventListener('pointerdown', this.onDown);
     canvas.removeEventListener('pointermove', this.onMove);
     canvas.removeEventListener('pointerup', this.onUp);
-    canvas.removeEventListener('pointercancel', this.onUp);
+    canvas.removeEventListener('pointercancel', this.onCancel);
     canvas.removeEventListener('pointerleave', this.onLeave);
     canvas.removeEventListener('wheel', this.onWheel);
     canvas.removeEventListener('contextmenu', this.onContextMenu);
@@ -168,6 +168,13 @@ export class InputController {
       }
       this.mode = 'idle';
     }
+  };
+
+  /** The browser took the pointer away (system gesture, palm rejection): drop the gesture, never commit it. */
+  private onCancel = (e: PointerEvent): void => {
+    this.pointers.delete(e.pointerId);
+    if (this.mode === 'build') this.build.abortGesture();
+    if (this.pointers.size === 0) this.mode = 'idle';
   };
 
   private onLeave = (): void => {

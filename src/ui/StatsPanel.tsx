@@ -105,7 +105,14 @@ export function StatsPanel({ onClose }: { onClose: () => void }) {
                   <tr
                     key={id}
                     onClick={() => toggle(id)}
-                    className={cx('h-11 cursor-pointer border-t border-white/5', on && 'bg-cyan-950/40')}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        toggle(id);
+                      }
+                    }}
+                    tabIndex={0}
+                    className={cx('h-11 cursor-pointer border-t border-white/5 focus:outline focus:outline-cyan-400', on && 'bg-cyan-950/40')}
                     aria-selected={on}
                   >
                     <td className="py-1">

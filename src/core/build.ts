@@ -145,20 +145,22 @@ export class BuildController {
 
   // --- Gestures ---
 
+  /**
+   * Starts a gesture. Nothing is built or demolished yet: that happens on release (tap) or once the
+   * finger starts dragging, so a second finger arriving for a pinch can still cancel it.
+   */
   pointerDown(tile: TileXY): void {
     this.dragStart = tile;
-    this.lastPaint = tile;
+    this.lastPaint = null;
     if (this.tool.kind === 'build') {
       if (BUILDINGS[this.tool.building].lineBuild) {
         this.dragMode = 'line';
         this.dragTiles = [tile];
       } else {
         this.dragMode = 'paint';
-        this.placeAt(this.tool.building, tile, true);
       }
     } else if (this.tool.kind === 'demolish') {
       this.dragMode = 'demolish';
-      this.demolishAt(tile);
     } else if (this.tool.kind === 'blueprintSelect') {
       this.dragMode = 'select';
       this.dragTiles = [tile, tile];
@@ -167,16 +169,24 @@ export class BuildController {
   }
 
   pointerDrag(tile: TileXY): void {
+    if (this.dragMode === 'paint' || this.dragMode === 'demolish') {
+      // The first drag event also applies the tile the finger started on.
+      if (this.lastPaint === null && this.dragStart) this.applyAt(this.dragStart, true);
+      if (!this.lastPaint || this.lastPaint.x !== tile.x || this.lastPaint.y !== tile.y) this.applyAt(tile, false);
+      return;
+    }
     const same = this.lastPaint !== null && this.lastPaint.x === tile.x && this.lastPaint.y === tile.y;
     if (this.dragMode === 'line') {
       if (!same) this.dragTiles.push(tile);
-    } else if (this.dragMode === 'paint' && this.tool.kind === 'build') {
-      if (!same) this.placeAt(this.tool.building, tile, false);
-    } else if (this.dragMode === 'demolish') {
-      if (!same) this.demolishAt(tile);
     } else if (this.dragMode === 'select') {
       this.dragTiles[1] = tile;
     }
+    this.lastPaint = tile;
+  }
+
+  private applyAt(tile: TileXY, report: boolean): void {
+    if (this.dragMode === 'paint' && this.tool.kind === 'build') this.placeAt(this.tool.building, tile, report);
+    else if (this.dragMode === 'demolish') this.demolishAt(tile);
     this.lastPaint = tile;
   }
 
@@ -188,6 +198,9 @@ export class BuildController {
     let captured: Blueprint | null = null;
     if (this.dragMode === 'line' && this.tool.kind === 'build') {
       this.commitLine(this.tool.building);
+    } else if ((this.dragMode === 'paint' || this.dragMode === 'demolish') && this.lastPaint === null) {
+      // A tap without dragging.
+      this.applyAt(this.dragStart ?? tile, true);
     } else if (this.dragMode === 'select') {
       const a = this.dragStart ?? tile;
       const b = this.dragTiles[1] ?? tile;
