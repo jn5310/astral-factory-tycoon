@@ -1,14 +1,13 @@
 import { useState } from 'react';
-import { BUILDINGS } from '../data/buildings';
-import { ITEMS } from '../data/items';
 import { RECIPES } from '../data/recipes';
-import { RESEARCH, RESEARCH_BY_ID, type ModifierKey, type ResearchDef } from '../data/research';
+import { RESEARCH, RESEARCH_BY_ID, type ResearchDef } from '../data/research';
 import { invGet } from '../systems/inventory';
 import { nodeStatus, researchFraction, setCurrentResearch, type NodeStatus } from '../systems/research';
 import { percent } from '../utils/format';
 import { buildingIconUrl } from './buildingIcon';
 import { Button, cx, ItemIcon, Modal, ProgressBar } from './common';
-import { useGame, useGameVersion } from './GameContext';
+import { buildingName, itemName, recipeName, researchName } from '../utils/i18n';
+import { useGame, useGameVersion, useMsg } from './GameContext';
 
 const COL_W = 188;
 const ROW_H = 86;
@@ -17,26 +16,11 @@ const NODE_H = 68;
 const PAD = 12;
 const HEAD = 30;
 
-const EFFECT_LABEL: Record<ModifierKey, string> = {
-  drillSpeed: '드릴 속도',
-  ammoDamage: '실탄 포탑 피해',
-  laserDamage: '레이저 피해',
-  buildingHp: '건물 내구도',
-  generatorOutput: '발전량',
-};
-
 const STATUS_STYLE: Record<NodeStatus, string> = {
   completed: 'border-emerald-400/70 bg-emerald-900/50 text-emerald-50',
   current: 'border-amber-300 bg-amber-900/50 text-amber-50 shadow-[0_0_14px_rgba(251,191,36,0.35)]',
   available: 'border-cyan-400/60 bg-slate-900 text-cyan-50',
   locked: 'border-white/10 bg-slate-900/60 text-slate-500',
-};
-
-const STATUS_LABEL: Record<NodeStatus, string> = {
-  completed: '완료',
-  current: '연구 중',
-  available: '연구 가능',
-  locked: '잠김',
 };
 
 function nodePos(n: ResearchDef): { x: number; y: number } {
@@ -45,20 +29,22 @@ function nodePos(n: ResearchDef): { x: number; y: number } {
 
 function NodeDetail({ id }: { id: string }) {
   const game = useGame();
+  const m = useMsg();
+  const t = m.researchUi;
   const w = game.world;
   const def = RESEARCH_BY_ID.get(id);
   if (!def) return null;
   const status = nodeStatus(w, id);
   const prog = w.research.progress[id] ?? {};
-  const missing = def.prereqs.filter((p) => !w.research.completed.has(p)).map((p) => RESEARCH_BY_ID.get(p)?.name ?? p);
+  const missing = def.prereqs.filter((p) => !w.research.completed.has(p)).map(researchName);
   return (
     <div className="max-h-[38dvh] overflow-y-auto border-t border-white/10 bg-slate-950 p-3 text-sm">
       <div className="flex flex-wrap items-center gap-2">
-        <b className="text-cyan-100">{def.name}</b>
-        <span className="rounded bg-slate-800 px-1.5 text-[11px] text-slate-300">티어 {def.tier}</span>
-        <span className="text-[11px] text-slate-400">{STATUS_LABEL[status]}</span>
+        <b className="text-cyan-100">{researchName(def.id)}</b>
+        <span className="rounded bg-slate-800 px-1.5 text-[11px] text-slate-300">{t.tier(def.tier)}</span>
+        <span className="text-[11px] text-slate-400">{t.status[status]}</span>
       </div>
-      <p className="mt-1 text-xs text-slate-300">{def.desc}</p>
+      <p className="mt-1 text-xs text-slate-300">{m.research[def.id].desc}</p>
       <div className="mt-2 grid grid-cols-2 gap-1 sm:grid-cols-3">
         {def.cost.map((c) => {
           const have = status === 'completed' ? c.amount : Math.min(c.amount, invGet(prog, c.item));
@@ -66,7 +52,7 @@ function NodeDetail({ id }: { id: string }) {
             <div key={c.item} className="rounded-md bg-slate-900 p-1.5 text-xs">
               <div className="flex items-center gap-1">
                 <ItemIcon item={c.item} size={18} />
-                <span className="truncate">{ITEMS[c.item].name}</span>
+                <span className="truncate">{itemName(c.item)}</span>
               </div>
               <div className="mt-1 flex items-center gap-1">
                 <ProgressBar value={have / c.amount} color="bg-indigo-400" className="h-1.5" />
@@ -79,22 +65,22 @@ function NodeDetail({ id }: { id: string }) {
         })}
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
-        <span className="text-slate-400">해금:</span>
+        <span className="text-slate-400">{t.unlocks}</span>
         {def.buildings.map((k) => (
           <span key={k} className="inline-flex items-center gap-1 rounded-md bg-slate-800 px-1.5 py-0.5">
             <img src={buildingIconUrl(k)} alt="" className="h-5 w-5" />
-            {BUILDINGS[k].name}
+            {buildingName(k)}
           </span>
         ))}
         {def.recipes.map((r) => (
           <span key={r} className="inline-flex items-center gap-1 rounded-md bg-slate-800 px-1.5 py-0.5">
             <ItemIcon item={RECIPES[r].outputs[0]?.item ?? 'coal'} size={18} />
-            {RECIPES[r].name}
+            {recipeName(r)}
           </span>
         ))}
         {def.effects.map((e) => (
           <span key={e.key} className="rounded-md bg-emerald-950/70 px-1.5 py-0.5 text-emerald-200">
-            {EFFECT_LABEL[e.key]} +{Math.round(e.value * 100)}%
+            {t.effects[e.key]} +{Math.round(e.value * 100)}%
           </span>
         ))}
       </div>
@@ -108,7 +94,7 @@ function NodeDetail({ id }: { id: string }) {
               game.notify();
             }}
           >
-            연구 시작
+            {t.start}
           </Button>
         )}
         {status === 'current' && (
@@ -119,13 +105,13 @@ function NodeDetail({ id }: { id: string }) {
                 game.notify();
               }}
             >
-              연구 중단 (진행도 유지)
+              {t.stop}
             </Button>
-            <span className="text-xs text-amber-200">전력이 연결된 연구소에 위 아이템을 벨트·투입기로 넣으세요.</span>
+            <span className="text-xs text-amber-200">{t.feedHint}</span>
           </>
         )}
-        {status === 'locked' && <span className="text-xs text-slate-400">선행 연구 필요: {missing.join(', ')}</span>}
-        {status === 'completed' && <span className="text-xs text-emerald-300">연구 완료</span>}
+        {status === 'locked' && <span className="text-xs text-slate-400">{t.needs(missing.join(', '))}</span>}
+        {status === 'completed' && <span className="text-xs text-emerald-300">{t.done}</span>}
       </div>
     </div>
   );
@@ -135,29 +121,31 @@ function NodeDetail({ id }: { id: string }) {
 export function ResearchTree({ onClose }: { onClose: () => void }) {
   const game = useGame();
   useGameVersion();
+  const m = useMsg();
+  const t = m.researchUi;
   const w = game.world;
-  const [selected, setSelected] = useState<string>(w.research.current ?? RESEARCH[0]?.id ?? '');
+  const [selected, setSelected] = useState<string>(w.research.current ?? RESEARCH[0]?.id ?? 'logistics');
   const width = PAD * 2 + 4 * COL_W + NODE_W;
   const height = PAD * 2 + HEAD + 6 * ROW_H + NODE_H;
   const current = w.research.current ? RESEARCH_BY_ID.get(w.research.current) : undefined;
   return (
-    <Modal title={`연구 트리 · 완료 ${w.research.completed.size}/35`} onClose={onClose} wide footer={<NodeDetail id={selected} />}>
+    <Modal title={t.title(w.research.completed.size)} onClose={onClose} wide footer={<NodeDetail id={selected} />}>
       <div className="mb-2 rounded-lg bg-slate-900/80 p-2 text-xs">
         {current ? (
           <div className="flex items-center gap-2">
-            <span className="shrink-0 text-amber-200">연구 중: {current.name}</span>
+            <span className="shrink-0 text-amber-200">{t.current(researchName(current.id))}</span>
             <ProgressBar value={researchFraction(w, current.id)} color="bg-amber-400" />
             <span className="shrink-0 tabular-nums">{percent(researchFraction(w, current.id))}</span>
           </div>
         ) : (
-          <span className="text-slate-300">연구할 노드를 선택하세요. 연구소(전력 필요)에 아이템을 넣으면 진행됩니다.</span>
+          <span className="text-slate-300">{t.pickHint}</span>
         )}
       </div>
       <div className="overflow-auto overscroll-contain rounded-lg border border-white/5 bg-slate-950">
         <div className="relative" style={{ width, height }}>
-          {[1, 2, 3, 4, 5].map((t) => (
-            <div key={t} className="absolute text-xs font-bold text-slate-400" style={{ left: PAD + (t - 1) * COL_W, top: PAD }}>
-              티어 {t}
+          {[1, 2, 3, 4, 5].map((tier) => (
+            <div key={tier} className="absolute text-xs font-bold text-slate-400" style={{ left: PAD + (tier - 1) * COL_W, top: PAD }}>
+              {m.researchUi.tier(tier)}
             </div>
           ))}
           <svg className="pointer-events-none absolute inset-0" width={width} height={height} aria-hidden="true">
@@ -193,9 +181,9 @@ export function ResearchTree({ onClose }: { onClose: () => void }) {
                   selected === n.id && 'ring-2 ring-white/80',
                 )}
                 style={{ left: p.x, top: p.y, width: NODE_W, height: NODE_H }}
-                aria-label={`${n.name}: ${STATUS_LABEL[status]}`}
+                aria-label={`${researchName(n.id)}: ${t.status[status]}`}
               >
-                <span className="line-clamp-1 font-bold">{n.name}</span>
+                <span className="line-clamp-1 font-bold">{researchName(n.id)}</span>
                 <span className="flex items-center gap-0.5">
                   {n.buildings.slice(0, 2).map((k) => (
                     <img key={k} src={buildingIconUrl(k)} alt="" className="h-5 w-5" />
@@ -212,7 +200,7 @@ export function ResearchTree({ onClose }: { onClose: () => void }) {
                 {status === 'current' ? (
                   <ProgressBar value={researchFraction(w, n.id)} color="bg-amber-300" className="h-1" />
                 ) : (
-                  <span className="text-[10px] opacity-70">{STATUS_LABEL[status]}</span>
+                  <span className="text-[10px] opacity-70">{t.status[status]}</span>
                 )}
               </button>
             );

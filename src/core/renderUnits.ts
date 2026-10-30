@@ -204,6 +204,21 @@ export function drawEnemy(ctx: Ctx2D, e: Enemy, time: number, detail: boolean): 
     }
   }
   ctx.restore();
+  if (e.slowFactor <= 0 && e.slowTimer > 0) {
+    ctx.fillStyle = 'rgba(186,230,253,0.55)';
+    ctx.strokeStyle = 'rgba(240,249,255,0.9)';
+    ctx.lineWidth = 0.05;
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * TAU + 0.3;
+      const rr = r * (i % 2 ? 1.25 : 1.45);
+      if (i === 0) ctx.moveTo(e.x + Math.cos(a) * rr, e.y + Math.sin(a) * rr);
+      else ctx.lineTo(e.x + Math.cos(a) * rr, e.y + Math.sin(a) * rr);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
   if (e.hitFlash > 0) {
     ctx.fillStyle = `rgba(255,255,255,${Math.min(0.7, e.hitFlash * 6)})`;
     ctx.beginPath();

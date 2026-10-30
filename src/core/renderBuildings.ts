@@ -3,7 +3,7 @@ import { BUILDINGS } from '../data/buildings';
 import { CONTAINER_CAPACITY, ROCKET_PARTS_REQUIRED } from '../data/constants';
 import { ITEMS } from '../data/items';
 import { RECIPES } from '../data/recipes';
-import { TURRETS } from '../data/turrets';
+import { TURRETS, rankFor } from '../data/turrets';
 import { drawGear, fillRoundRect, roundRectPath, rgba, shade, type Ctx2D } from '../utils/draw';
 import { drawItemSprite } from '../utils/itemIcons';
 import { invTotal } from '../systems/inventory';
@@ -727,6 +727,22 @@ function drawTurret(ctx: Ctx2D, b: Building, dc: DrawCtx): void {
       break;
   }
   ctx.restore();
+  const rank = rankFor(t?.kills ?? 0);
+  if (rank > 0 && b.kind !== 'core') {
+    ctx.fillStyle = rank >= 3 ? '#fbbf24' : '#e2e8f0';
+    for (let k = 0; k < rank; k++) {
+      const y = 0.16 + k * 0.13;
+      ctx.beginPath();
+      ctx.moveTo(0.12, y);
+      ctx.lineTo(0.22, y + 0.07);
+      ctx.lineTo(0.32, y);
+      ctx.lineTo(0.32, y + 0.05);
+      ctx.lineTo(0.22, y + 0.12);
+      ctx.lineTo(0.12, y + 0.05);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
   // Ammo gauge for ammo turrets; blink red when empty.
   if (tdef && tdef.ammo.length > 0 && t) {
     const frac = t.ammo / tdef.magazine;

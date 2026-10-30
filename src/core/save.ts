@@ -447,7 +447,8 @@ export function loadFromStorage(storage: Storage): World | null {
   }
 }
 
-export function hasSave(storage: Storage): boolean {
+export function hasSave(storage: Storage | null): boolean {
+  if (!storage) return false;
   try {
     return storage.getItem(SAVE_KEY) !== null;
   } catch {

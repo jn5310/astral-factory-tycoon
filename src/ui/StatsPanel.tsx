@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { ITEMS, type ItemId } from '../data/items';
+import type { ItemId } from '../data/items';
 import { invGet } from '../systems/inventory';
 import { compact } from '../utils/format';
 import { cx, ItemIcon, Modal } from './common';
-import { useGame, useGameVersion } from './GameContext';
+import { itemName } from '../utils/i18n';
+import { useGame, useGameVersion, useMsg } from './GameContext';
 
 const COLORS = ['#22d3ee', '#f59e0b', '#a78bfa', '#4ade80', '#f472b6'];
 const W = 640;
@@ -19,6 +20,7 @@ interface Series {
 
 /** Line chart of items per minute: solid = produced, dashed = consumed. */
 function Chart({ series, bucketSeconds }: { series: readonly Series[]; bucketSeconds: number }) {
+  const m = useMsg();
   const n = Math.max(2, ...series.map((s) => s.produced.length));
   let max = 1;
   for (const s of series) for (const v of [...s.produced, ...s.consumed]) max = Math.max(max, v);
@@ -28,7 +30,7 @@ function Chart({ series, bucketSeconds }: { series: readonly Series[]; bucketSec
   const line = (vals: readonly number[]): string => vals.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i, vals.length).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
   const minutes = ((n - 1) * bucketSeconds) / 60;
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full rounded-lg bg-slate-900/70" role="img" aria-label="분당 생산량/소비량 그래프">
+    <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full rounded-lg bg-slate-900/70" role="img" aria-label={m.stats.chart}>
       {[0, 0.5, 1].map((f) => (
         <g key={f}>
           <line x1={PAD.l} x2={W - PAD.r} y1={y(max * f)} y2={y(max * f)} stroke="#334155" strokeDasharray="4 4" />
@@ -38,10 +40,10 @@ function Chart({ series, bucketSeconds }: { series: readonly Series[]; bucketSec
         </g>
       ))}
       <text x={PAD.l} y={H - 6} fontSize="11" fill="#94a3b8">
-        -{minutes.toFixed(1)}분
+        {m.stats.ago(minutes.toFixed(1))}
       </text>
       <text x={W - PAD.r} y={H - 6} fontSize="11" fill="#94a3b8" textAnchor="end">
-        지금
+        {m.stats.now}
       </text>
       {series.map((s) => (
         <g key={s.id}>
@@ -56,6 +58,7 @@ function Chart({ series, bucketSeconds }: { series: readonly Series[]; bucketSec
 export function StatsPanel({ onClose }: { onClose: () => void }) {
   const game = useGame();
   useGameVersion();
+  const m = useMsg();
   const stats = game.world.stats;
   const items = stats.activeItems();
   const [picked, setPicked] = useState<ItemId[] | null>(null);
@@ -71,9 +74,9 @@ export function StatsPanel({ onClose }: { onClose: () => void }) {
     setPicked(base.includes(id) ? base.filter((x) => x !== id) : [...base, id].slice(-COLORS.length));
   };
   return (
-    <Modal title="생산 통계 (분당 생산량 · 소비량)" onClose={onClose} wide>
+    <Modal title={m.stats.title} onClose={onClose} wide>
       {items.length === 0 ? (
-        <p className="text-sm text-slate-400">아직 생산 기록이 없습니다. 드릴과 제련로를 가동해 보세요.</p>
+        <p className="text-sm text-slate-400">{m.stats.empty}</p>
       ) : (
         <>
           <Chart series={series} bucketSeconds={stats.bucketSeconds} />
@@ -81,19 +84,19 @@ export function StatsPanel({ onClose }: { onClose: () => void }) {
             {series.map((s) => (
               <span key={s.id} className="inline-flex items-center gap-1">
                 <span className="inline-block h-1 w-4 rounded" style={{ background: s.color }} />
-                {ITEMS[s.id].name}
+                {itemName(s.id)}
               </span>
             ))}
-            <span className="text-slate-400">실선 = 생산, 점선 = 소비</span>
+            <span className="text-slate-400">{m.stats.legendNote}</span>
           </div>
           <table className="mt-3 w-full text-xs">
             <thead className="text-slate-400">
               <tr>
-                <th className="py-1 text-left font-normal">아이템 (탭: 그래프 표시)</th>
-                <th className="py-1 text-right font-normal">생산/분</th>
-                <th className="py-1 text-right font-normal">소비/분</th>
-                <th className="py-1 text-right font-normal">순증감</th>
-                <th className="py-1 text-right font-normal">코어 재고</th>
+                <th className="py-1 text-left font-normal">{m.stats.itemCol}</th>
+                <th className="py-1 text-right font-normal">{m.stats.producedCol}</th>
+                <th className="py-1 text-right font-normal">{m.stats.consumedCol}</th>
+                <th className="py-1 text-right font-normal">{m.stats.netCol}</th>
+                <th className="py-1 text-right font-normal">{m.stats.stockCol}</th>
               </tr>
             </thead>
             <tbody>
@@ -118,7 +121,7 @@ export function StatsPanel({ onClose }: { onClose: () => void }) {
                     <td className="py-1">
                       <span className="inline-flex items-center gap-1.5">
                         <ItemIcon item={id} size={18} />
-                        {ITEMS[id].name}
+                        {itemName(id)}
                       </span>
                     </td>
                     <td className="text-right tabular-nums text-emerald-300">{compact(Math.round(p))}</td>

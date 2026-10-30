@@ -6,13 +6,13 @@ import { ENEMIES } from '../data/enemies';
 import { TURRETS } from '../data/turrets';
 import { beltItemPosition } from '../systems/belts';
 import { daylightAt } from '../systems/daynight';
-import { drawGlow, type Ctx2D } from '../utils/draw';
+import { drawGlow, rgba, roundRectPath, type Ctx2D } from '../utils/draw';
 import { drawItemSprite } from '../utils/itemIcons';
 import type { BuildController, PreviewCell } from './build';
 import type { Camera } from './camera';
 import { buildingLight, drawBelt, drawBuilding, type DrawCtx } from './renderBuildings';
 import { drawEnemy, drawParticle, drawProjectile, isGlowParticle } from './renderUnits';
-import { buildTerrainCanvas, TERRAIN_PX } from './terrainLayer';
+import { buildTerrainCanvas, drawTerrainTile, TERRAIN_PX } from './terrainLayer';
 import { DX, DY, dirFromDelta, opposite, rotateCCW, type Dir } from './types';
 import type { World } from './World';
 
@@ -38,7 +38,10 @@ function isPowerKind(kind: BuildingKind): boolean {
 export class Renderer {
   private readonly ctx: Ctx2D;
   private terrain: HTMLCanvasElement | null = null;
+  private terrainCtx: CanvasRenderingContext2D | null = null;
   private terrainWorld: World | null = null;
+  private flashColor = '#ffffff';
+  private flashAlpha = 0;
   private readonly visible: Building[] = [];
   private readonly ghosts = new Map<BuildingKind, Building>();
   private readonly dc: DrawCtx = { time: 0, detail: 1, daylight: 1, launchTimer: -1 };
@@ -51,6 +54,12 @@ export class Renderer {
     const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) throw new Error('Canvas 2D is not supported in this browser');
     this.ctx = ctx;
+  }
+
+  /** Full-screen color pulse (commander powers). */
+  flash(color: string): void {
+    this.flashColor = color;
+    this.flashAlpha = 0.45;
   }
 
   addShake(strength: number): void {
@@ -69,8 +78,14 @@ export class Renderer {
     this.shake = Math.max(0, this.shake - dt * 2.2);
     if (this.terrainWorld !== world) {
       this.terrain = buildTerrainCanvas(world);
+      this.terrainCtx = this.terrain.getContext('2d');
       this.terrainWorld = world;
       this.ghosts.clear();
+      world.terrainEdits.length = 0;
+    }
+    if (world.terrainEdits.length > 0 && this.terrainCtx) {
+      for (const idx of world.terrainEdits) drawTerrainTile(this.terrainCtx, world, idx % world.width, Math.floor(idx / world.width));
+      world.terrainEdits.length = 0;
     }
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -143,6 +158,8 @@ export class Renderer {
     dc.launchTimer = -1;
     this.drawBridgeTransit(world, vis, detail);
     this.drawWires(world, bounds, z);
+    this.drawPickups(world);
+    this.drawStrikeMarkers(world);
 
     const inView = (x: number, y: number, m: number): boolean => x > x0 - m && x < x1 + 1 + m && y > y0 - m && y < y1 + 1 + m;
     for (const e of world.enemies) if (!ENEMIES[e.type].flying && inView(e.x, e.y, 2)) drawEnemy(ctx, e, this.time, detail > 0);
@@ -152,7 +169,7 @@ export class Renderer {
     // Night: darken everything, then add light additively so machines and gunfire shine.
     const dark = (1 - daylight) * 0.62;
     if (dark > 0.01) {
-      ctx.fillStyle = `rgba(3,6,22,${dark})`;
+      ctx.fillStyle = world.director.bloodMoon ? `rgba(40,4,10,${dark})` : `rgba(3,6,22,${dark})`;
       ctx.fillRect(x0 - 2, y0 - 2, x1 - x0 + 5, y1 - y0 + 5);
     }
     ctx.globalCompositeOperation = 'lighter';
@@ -165,11 +182,192 @@ export class Renderer {
     this.drawBeams(vis);
     for (const p of world.projectiles.items) if (p.active && inView(p.x, p.y, 2)) drawProjectile(ctx, p);
     for (const p of world.particles.items) if (p.active && isGlowParticle(p) && inView(p.x, p.y, 3)) drawParticle(ctx, p);
+    this.drawMeteors(world);
+    this.drawStrikeBeams(world);
     ctx.globalCompositeOperation = 'source-over';
 
     this.drawStatus(vis, detail);
     this.drawSelection(world, build);
     this.drawPreview(world, build, z);
+    this.drawScreenEffects(world, camera, dt);
+  }
+
+  /** Supply pods: a parachute while falling, then a pulsing beacon until someone taps it. */
+  private drawPickups(world: World): void {
+    const ctx = this.ctx;
+    for (const p of world.pickups) {
+      const lift = p.fall > 0 ? p.fall * 6 : 0;
+      const bob = p.landed ? Math.sin(this.time * 3 + p.id) * 0.08 : 0;
+      const y = p.y - lift + bob;
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.beginPath();
+      ctx.ellipse(p.x, p.y + 0.3, 0.45 * (1 - Math.min(0.8, lift / 20)), 0.18, 0, 0, TAU);
+      ctx.fill();
+      if (p.fall > 0) {
+        ctx.fillStyle = '#e2e8f0';
+        ctx.beginPath();
+        ctx.arc(p.x, y - 0.9, 0.7, Math.PI, 0);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(226,232,240,0.7)';
+        ctx.lineWidth = 0.04;
+        ctx.beginPath();
+        ctx.moveTo(p.x - 0.7, y - 0.9);
+        ctx.lineTo(p.x - 0.2, y - 0.2);
+        ctx.moveTo(p.x + 0.7, y - 0.9);
+        ctx.lineTo(p.x + 0.2, y - 0.2);
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#0e7490';
+      roundRectPath(ctx, p.x - 0.32, y - 0.38, 0.64, 0.7, 0.14);
+      ctx.fill();
+      ctx.fillStyle = '#a5f3fc';
+      ctx.fillRect(p.x - 0.32, y - 0.06, 0.64, 0.1);
+      ctx.fillStyle = Math.floor(this.time * 3) % 2 ? '#67e8f9' : '#ecfeff';
+      ctx.beginPath();
+      ctx.arc(p.x, y - 0.5, 0.09, 0, TAU);
+      ctx.fill();
+      if (p.landed) {
+        const a = 1.4 + Math.sin(this.time * 4 + p.id) * 0.3;
+        ctx.strokeStyle = `rgba(103,232,249,${0.35 + 0.25 * Math.sin(this.time * 4)})`;
+        ctx.lineWidth = 0.06;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, a, 0, TAU);
+        ctx.stroke();
+        // Bouncing arrow so the pod is easy to spot.
+        const ay = p.y - 1.25 - Math.abs(Math.sin(this.time * 3)) * 0.3;
+        ctx.fillStyle = '#ecfeff';
+        ctx.beginPath();
+        ctx.moveTo(p.x - 0.22, ay - 0.25);
+        ctx.lineTo(p.x + 0.22, ay - 0.25);
+        ctx.lineTo(p.x, ay);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+  }
+
+  private drawStrikeMarkers(world: World): void {
+    const ctx = this.ctx;
+    for (const s of world.abilities.strikes) {
+      const r = 4.5;
+      const k = 1 - Math.max(0, s.t) / 1.5;
+      ctx.strokeStyle = `rgba(249,115,22,${0.4 + k * 0.5})`;
+      ctx.lineWidth = 0.12;
+      ctx.setLineDash([0.4, 0.25]);
+      ctx.lineDashOffset = -this.time * 3;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, r, 0, TAU);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.lineDashOffset = 0;
+      ctx.fillStyle = `rgba(249,115,22,${0.08 + k * 0.18})`;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, r * k, 0, TAU);
+      ctx.fill();
+    }
+  }
+
+  private drawStrikeBeams(world: World): void {
+    const ctx = this.ctx;
+    for (const s of world.abilities.strikes) {
+      const k = 1 - Math.max(0, s.t) / 1.5;
+      const w = 0.15 + k * 0.6;
+      const grad = ctx.createLinearGradient(s.x, s.y - 30, s.x, s.y);
+      grad.addColorStop(0, 'rgba(253,186,116,0)');
+      grad.addColorStop(1, `rgba(254,215,170,${0.3 + k * 0.6})`);
+      ctx.fillStyle = grad;
+      ctx.fillRect(s.x - w / 2, s.y - 30, w, 30);
+      drawGlow(ctx, s.x, s.y, 1 + k * 2, '#fb923c', 0.4 + k * 0.5);
+    }
+  }
+
+  /** Meteors streak in from the upper left; a growing shadow marks the impact point. */
+  private drawMeteors(world: World): void {
+    const ctx = this.ctx;
+    for (const m of world.director.meteors) {
+      if (m.t > 1.2) continue;
+      const k = 1 - m.t / 1.2;
+      const hx = m.x - m.t * 14;
+      const hy = m.y - m.t * 18;
+      ctx.strokeStyle = 'rgba(253,186,116,0.7)';
+      ctx.lineWidth = 0.18;
+      ctx.beginPath();
+      ctx.moveTo(hx - 2.2, hy - 2.8);
+      ctx.lineTo(hx, hy);
+      ctx.stroke();
+      drawGlow(ctx, hx, hy, 1.1, '#fdba74', 0.9);
+      drawGlow(ctx, m.x, m.y, 0.6 + k * 1.2, '#ef4444', 0.15 + k * 0.35);
+    }
+  }
+
+  /** Screen-space layer: weather and event tints, floating text, power flashes. */
+  private drawScreenEffects(world: World, camera: Camera, dt: number): void {
+    const ctx = this.ctx;
+    const { width: vw, height: vh, dpr } = camera.viewport;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const effect = world.director.effect;
+    if (effect?.id === 'dustStorm') {
+      const fade = Math.min(1, effect.timeLeft / 4, (effect.total - effect.timeLeft) / 4);
+      ctx.fillStyle = `rgba(146,108,61,${0.22 * fade})`;
+      ctx.fillRect(0, 0, vw, vh);
+      ctx.strokeStyle = `rgba(214,180,130,${0.35 * fade})`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      for (let i = 0; i < 70; i++) {
+        const sx = (((i * 97 + this.time * 420) % (vw + 200)) + vw + 200) % (vw + 200) - 100;
+        const sy = (i * 53.7) % vh;
+        ctx.moveTo(sx, sy);
+        ctx.lineTo(sx + 40, sy + 6);
+      }
+      ctx.stroke();
+    } else if (effect?.id === 'solarFlare') {
+      const fade = Math.min(1, effect.timeLeft / 4, (effect.total - effect.timeLeft) / 4);
+      ctx.globalCompositeOperation = 'lighter';
+      for (let k = 0; k < 3; k++) {
+        const y = vh * (0.08 + k * 0.06) + Math.sin(this.time * 0.8 + k) * 10;
+        const g = ctx.createLinearGradient(0, y - 40, 0, y + 40);
+        const color = k === 1 ? '74,222,128' : '45,212,191';
+        g.addColorStop(0, `rgba(${color},0)`);
+        g.addColorStop(0.5, `rgba(${color},${0.12 * fade})`);
+        g.addColorStop(1, `rgba(${color},0)`);
+        ctx.fillStyle = g;
+        ctx.fillRect(0, y - 40, vw, 80);
+      }
+      ctx.globalCompositeOperation = 'source-over';
+    }
+    if (world.abilities.overclock > 0) {
+      ctx.strokeStyle = `rgba(250,204,21,${0.35 + 0.2 * Math.sin(this.time * 10)})`;
+      ctx.lineWidth = 6;
+      ctx.strokeRect(3, 3, vw - 6, vh - 6);
+    }
+    // Floating "+N" labels are drawn in screen pixels so they stay crisp at any zoom.
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.font = '700 13px system-ui, sans-serif';
+    for (const p of world.particles.items) {
+      if (!p.active || p.kind !== 'text') continue;
+      const s = camera.worldToScreen(p.x, p.y, this.scratch);
+      if (s.x < -40 || s.y < -40 || s.x > vw + 40 || s.y > vh + 40) continue;
+      ctx.globalAlpha = Math.min(1, (p.life / p.maxLife) * 2);
+      let x = s.x - 14;
+      if (p.item) {
+        drawItemSprite(ctx, p.item, x, s.y, 16);
+        x += 10;
+      }
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(2,6,23,0.85)';
+      ctx.strokeText(p.text, x, s.y);
+      ctx.fillStyle = p.color;
+      ctx.fillText(p.text, x, s.y);
+    }
+    ctx.globalAlpha = 1;
+    if (this.flashAlpha > 0) {
+      ctx.fillStyle = this.flashColor;
+      ctx.globalAlpha = this.flashAlpha;
+      ctx.fillRect(0, 0, vw, vh);
+      ctx.globalAlpha = 1;
+      this.flashAlpha = Math.max(0, this.flashAlpha - dt * 1.2);
+    }
   }
 
   private drawNests(world: World): void {
@@ -473,6 +671,28 @@ export class Renderer {
       const size = BUILDINGS[last.kind].size;
       if (tdef) this.drawRange(last.x + size / 2, last.y + size / 2, tdef.range, 'rgba(248,113,113,0.5)');
       if (last.kind === 'power_pole') this.drawPoleArea(last.x, last.y, true);
+    }
+    if (preview.target) {
+      const t = preview.target;
+      ctx.strokeStyle = t.color;
+      ctx.lineWidth = 0.1;
+      ctx.setLineDash([0.35, 0.2]);
+      ctx.lineDashOffset = -this.time * 2;
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, t.radius, 0, TAU);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.lineDashOffset = 0;
+      ctx.fillStyle = rgba(t.color, 0.15);
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, t.radius, 0, TAU);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(t.x - 0.6, t.y);
+      ctx.lineTo(t.x + 0.6, t.y);
+      ctx.moveTo(t.x, t.y - 0.6);
+      ctx.lineTo(t.x, t.y + 0.6);
+      ctx.stroke();
     }
     if (preview.rect) {
       const r = preview.rect;

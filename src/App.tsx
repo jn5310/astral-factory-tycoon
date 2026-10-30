@@ -7,19 +7,20 @@ import { GameCanvas } from './ui/GameCanvas';
 import { GameProvider } from './ui/GameContext';
 import { Hud } from './ui/Hud';
 
-function createGame(): { game: Game; firstRun: boolean } {
+/** The saved colony (or a fresh demo planet) sits behind the title screen until the player starts. */
+function createGame(): Game {
   const storage = getStorage();
   const saved = storage ? loadFromStorage(storage) : null;
-  return { game: new Game(saved ?? createWorld({ seed: randomSeed() })), firstRun: saved === null };
+  return new Game(saved ?? createWorld({ seed: randomSeed() }));
 }
 
 export default function App() {
-  const [{ game, firstRun }] = useState(createGame);
+  const [game] = useState(createGame);
   return (
     <GameProvider game={game}>
       <main className="fixed inset-0 overflow-hidden bg-[#03050b] font-sans text-slate-100">
         <GameCanvas />
-        <Hud firstRun={firstRun} />
+        <Hud />
       </main>
     </GameProvider>
   );

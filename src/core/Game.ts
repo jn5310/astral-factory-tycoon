@@ -1,6 +1,14 @@
 import { AUTOSAVE_INTERVAL, MAX_STEPS_PER_FRAME, SETTINGS_KEY, SIM_DT } from '../data/constants';
 import { isCrafterKind } from '../data/buildings';
+import type { Difficulty, GameMode } from '../data/difficulty';
 import type { Blueprint } from '../systems/blueprint';
+import { checkAchievements } from '../systems/achievements';
+import { isNightPhase } from '../systems/daynight';
+import { computeScore, type ScoreBreakdown } from '../systems/score';
+import { dailyKey, dailyMutator, dailySeed } from '../utils/daily';
+import { detectLang, enemyName, getLang, isLang, msg, setLang, type Lang } from '../utils/i18n';
+import { MusicEngine, type MusicMood } from '../utils/music';
+import { randomSeed } from '../utils/rng';
 import { SoundEngine } from '../utils/sound';
 import { BuildController } from './build';
 import { Camera } from './camera';
@@ -8,41 +16,124 @@ import { stepWorld } from './engine';
 import type { SoundName, ToastLevel } from './events';
 import { InputController } from './input';
 import { MinimapRenderer } from './minimap';
+import { loadProfile, recordScore, saveProfile, type Profile } from './profile';
 import { Renderer } from './renderer';
 import { getStorage, saveToStorage } from './save';
-import { coreCenter, type World } from './World';
+import type { TileXY } from './types';
+import { coreCenter, createWorld, type World } from './World';
 
 export interface Toast {
   id: number;
   message: string;
   level: ToastLevel;
   expires: number;
+  focus?: TileXY;
+}
+
+export interface RadioMessage {
+  id: number;
+  text: string;
+  expires: number;
+}
+
+export interface RunResult {
+  score: ScoreBreakdown;
+  /** Place in the high-score table (0-based), -1 when it did not place or was not recorded. */
+  rank: number;
+  victory: boolean;
 }
 
 export type GameSpeed = 0 | 1 | 2 | 3;
+export type Screen = 'title' | 'playing';
+
+export interface NewGameOptions {
+  mode: GameMode;
+  difficulty: Difficulty;
+  seed?: number;
+}
 
 interface Settings {
+  lang: Lang;
   muted: boolean;
-  volume: number;
+  sfxVolume: number;
+  musicVolume: number;
   showPollution: boolean;
 }
 
 /** Sounds that are not positional (UI / global alerts). */
-const GLOBAL_SOUNDS: ReadonlySet<SoundName> = new Set<SoundName>(['alarm', 'research', 'victory', 'defeat', 'launch', 'ui', 'error']);
+const GLOBAL_SOUNDS: ReadonlySet<SoundName> = new Set<SoundName>([
+  'alarm',
+  'research',
+  'victory',
+  'defeat',
+  'launch',
+  'ui',
+  'error',
+  'mission',
+  'achievement',
+  'siren',
+  'overclock',
+  'freeze',
+]);
+
+export const APP_VERSION = '1.1.0';
+
+function readSettings(): Partial<Settings> {
+  try {
+    const raw = getStorage()?.getItem(SETTINGS_KEY);
+    if (!raw) return {};
+    const s = JSON.parse(raw) as Record<string, unknown>;
+    const out: Partial<Settings> = {};
+    if (isLang(s.lang)) out.lang = s.lang;
+    if (typeof s.muted === 'boolean') out.muted = s.muted;
+    if (typeof s.sfxVolume === 'number' && Number.isFinite(s.sfxVolume)) out.sfxVolume = s.sfxVolume;
+    // v1.0 stored a single "volume".
+    else if (typeof s.volume === 'number' && Number.isFinite(s.volume)) out.sfxVolume = s.volume;
+    if (typeof s.musicVolume === 'number' && Number.isFinite(s.musicVolume)) out.musicVolume = s.musicVolume;
+    if (typeof s.showPollution === 'boolean') out.showPollution = s.showPollution;
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/** Applies the language before React renders (called from main.tsx). */
+export function initLanguage(): Lang {
+  const saved = readSettings().lang;
+  const lang = saved ?? detectLang(typeof navigator !== 'undefined' ? navigator.languages ?? [navigator.language] : []);
+  setLang(lang);
+  applyDocumentLanguage();
+  return lang;
+}
+
+function applyDocumentLanguage(): void {
+  if (typeof document === 'undefined') return;
+  document.documentElement.lang = getLang();
+  document.title = `${msg().meta.title} · ${msg().meta.tagline}`;
+  document.querySelector('meta[name="description"]')?.setAttribute('content', msg().meta.description);
+}
 
 /**
  * Owns the running game: fixed-timestep simulation driven by requestAnimationFrame, rendering,
- * input, sound, autosave, and a tiny subscribe/version store the React HUD reads from.
+ * input, sound and music, autosave, the meta profile, and a tiny subscribe/version store the
+ * React HUD reads from.
  */
 export class Game {
   world: World;
   readonly camera: Camera;
   readonly build: BuildController;
   readonly sound = new SoundEngine();
-  speed: GameSpeed = 1;
+  readonly music: MusicEngine;
+  profile: Profile;
+  screen: Screen = 'title';
+  speed: GameSpeed = 0;
   toasts: Toast[] = [];
+  radio: RadioMessage | null = null;
+  result: RunResult | null = null;
   /** Set when a blueprint selection finished; the HUD asks for a name. */
   pendingBlueprint: Blueprint | null = null;
+  /** Ask the HUD to open the how-to-play sheet once (first ever run). */
+  pendingHelp = false;
   lastSaveAt = 0;
   fps = 60;
   showPollution = false;
@@ -57,9 +148,13 @@ export class Game {
   private uiTimer = 0;
   private autosaveTimer = 0;
   private ambienceTimer = 0;
+  private metaTimer = 0;
   private minimapTimer = 0;
   private version = 0;
   private nextToastId = 1;
+  private nextRadioId = 1;
+  private radioQueue: string[] = [];
+  private recordedWorld: World | null = null;
   private saveWarned = false;
   private readonly listeners = new Set<() => void>();
 
@@ -68,7 +163,9 @@ export class Game {
     this.camera = new Camera(world.width, world.height);
     this.build = new BuildController(world);
     this.build.subscribe(() => this.notify());
-    this.loadSettings();
+    this.music = new MusicEngine(() => this.sound.audioOut());
+    this.profile = loadProfile(getStorage());
+    this.applySettings(readSettings());
     this.focusCore();
   }
 
@@ -101,7 +198,7 @@ export class Game {
         this.pendingBlueprint = bp;
         this.notify();
       },
-      onInteract: () => this.sound.resume(),
+      onInteract: () => this.unlockAudio(),
     });
     this.input.attach(canvas);
     const resize = (): void => {
@@ -140,15 +237,75 @@ export class Game {
     if (this.minimap) this.minimap.showPollution = this.showPollution;
   }
 
+  /** The world canvas, for screenshots. */
+  snapshotSource(): HTMLCanvasElement | null {
+    return this.canvas;
+  }
+
+  /** Audio can only start inside a user gesture. */
+  unlockAudio(): void {
+    this.sound.resume();
+    this.updateMusic();
+  }
+
+  // --- Screens and runs ----------------------------------------------------
+
   /** Replaces the running world (new game / load / import). */
   loadWorld(world: World): void {
     this.world = world;
     this.build.setWorld(world);
     this.pendingBlueprint = null;
     this.toasts = [];
+    this.radio = null;
+    this.radioQueue = [];
+    this.result = null;
     this.acc = 0;
     this.autosaveTimer = 0;
     this.focusCore();
+    this.notify();
+  }
+
+  startNewGame(opts: NewGameOptions): void {
+    let world: World;
+    if (opts.mode === 'daily') {
+      const key = dailyKey(new Date());
+      world = createWorld({ seed: dailySeed(key), mode: 'daily', difficulty: 'normal', mutator: dailyMutator(key), dailyKey: key });
+    } else {
+      world = createWorld({ seed: opts.seed ?? randomSeed(), mode: opts.mode, difficulty: opts.difficulty });
+    }
+    this.pendingHelp = this.profile.runs === 0;
+    this.profile.runs++;
+    saveProfile(getStorage(), this.profile);
+    this.loadWorld(world);
+    this.save();
+    this.screen = 'playing';
+    this.speed = 1;
+    if (world.settings.mode !== 'sandbox') this.queueRadio(msg().radio.intro);
+    this.pushToast(msg().setup.landed(world.seed), 'success');
+    this.unlockAudio();
+    this.notify();
+  }
+
+  continueGame(): void {
+    this.screen = 'playing';
+    this.speed = 1;
+    this.focusCore();
+    this.unlockAudio();
+    this.notify();
+  }
+
+  quitToTitle(): void {
+    if (this.world.state === 'playing') this.save();
+    this.build.setTool({ kind: 'inspect' });
+    this.screen = 'title';
+    this.speed = 0;
+    this.result = null;
+    this.updateMusic();
+    this.notify();
+  }
+
+  dismissResult(): void {
+    this.result = null;
     this.notify();
   }
 
@@ -158,13 +315,35 @@ export class Game {
     this.camera.centerOn(c.x, c.y);
   }
 
+  focus(x: number, y: number): void {
+    this.camera.centerOn(x, y);
+    this.notify();
+  }
+
   setSpeed(speed: GameSpeed): void {
     this.speed = speed;
     this.notify();
   }
 
   togglePause(): void {
+    if (this.screen !== 'playing') return;
     this.setSpeed(this.speed === 0 ? 1 : 0);
+  }
+
+  // --- Settings ------------------------------------------------------------
+
+  private applySettings(s: Partial<Settings>): void {
+    if (s.muted !== undefined) this.sound.setMuted(s.muted);
+    if (s.sfxVolume !== undefined) this.sound.setSfxVolume(s.sfxVolume);
+    if (s.musicVolume !== undefined) this.sound.setMusicVolume(s.musicVolume);
+    if (s.showPollution !== undefined) this.showPollution = s.showPollution;
+  }
+
+  setLanguage(lang: Lang): void {
+    setLang(lang);
+    applyDocumentLanguage();
+    this.saveSettings();
+    this.notify();
   }
 
   setPollutionOverlay(on: boolean): void {
@@ -181,15 +360,36 @@ export class Game {
     this.notify();
   }
 
-  setVolume(v: number): void {
-    this.sound.setVolume(v);
+  setSfxVolume(v: number): void {
+    this.sound.setSfxVolume(v);
     this.saveSettings();
     this.notify();
   }
 
+  setMusicVolume(v: number): void {
+    this.sound.setMusicVolume(v);
+    this.saveSettings();
+    this.notify();
+  }
+
+  private saveSettings(): void {
+    const settings: Settings = {
+      lang: getLang(),
+      muted: this.sound.muted,
+      sfxVolume: this.sound.sfxLevel,
+      musicVolume: this.sound.musicLevel,
+      showPollution: this.showPollution,
+    };
+    try {
+      getStorage()?.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    } catch {
+      // Settings are a convenience; failing to persist them is harmless.
+    }
+  }
+
   /** Plays a UI click (also unlocks audio on the first tap). */
   uiClick(sound: SoundName = 'ui'): void {
-    this.sound.resume();
+    this.unlockAudio();
     this.sound.play(sound);
   }
 
@@ -202,21 +402,41 @@ export class Game {
       this.saveWarned = false;
     } else if (!this.saveWarned) {
       this.saveWarned = true;
-      this.pushToast('저장 공간이 부족해 자동 저장에 실패했습니다. JSON 내보내기를 이용하세요.', 'danger');
+      this.pushToast(msg().menu.saveFailed, 'danger');
     }
     this.notify();
     return ok;
   }
 
-  pushToast(message: string, level: ToastLevel = 'info'): void {
+  pushToast(message: string, level: ToastLevel = 'info', focus?: TileXY): void {
     const now = performance.now();
     const existing = this.toasts.find((t) => t.message === message);
     if (existing) {
-      existing.expires = now + 3500;
+      existing.expires = now + 4000;
+      if (focus) existing.focus = focus;
       return;
     }
-    this.toasts.push({ id: this.nextToastId++, message, level, expires: now + 3500 });
+    this.toasts.push({ id: this.nextToastId++, message, level, expires: now + 4000, focus });
     if (this.toasts.length > 4) this.toasts.shift();
+    this.notify();
+  }
+
+  queueRadio(text: string): void {
+    if (this.radio?.text === text || this.radioQueue.includes(text)) return;
+    this.radioQueue.push(text);
+    if (!this.radio) this.nextRadio();
+  }
+
+  dismissRadio(): void {
+    this.radio = null;
+    this.nextRadio();
+    this.notify();
+  }
+
+  private nextRadio(): void {
+    const text = this.radioQueue.shift();
+    if (text === undefined) return;
+    this.radio = { id: this.nextRadioId++, text, expires: performance.now() + Math.max(6000, text.length * 70) };
     this.notify();
   }
 
@@ -228,7 +448,7 @@ export class Game {
     this.last = now;
     if (dt > 0) this.fps = this.fps * 0.95 + (1 / dt) * 0.05;
 
-    if (this.speed > 0) {
+    if (this.screen === 'playing' && this.speed > 0) {
       this.acc += dt * this.speed;
       const maxSteps = MAX_STEPS_PER_FRAME * this.speed;
       let steps = 0;
@@ -239,6 +459,11 @@ export class Game {
       }
       // A device that cannot keep up drops the backlog instead of spiralling.
       if (steps >= maxSteps) this.acc = 0;
+    } else if (this.screen === 'title') {
+      // Slow drift over the colony behind the title screen.
+      this.camera.panByPixels(-dt * 14, 0);
+      const c = coreCenter(this.world);
+      if (Math.abs(this.camera.x - c.x) > 30) this.camera.centerOn(c.x - 20, this.camera.y);
     }
     this.drainEvents();
     this.renderer?.render(this.world, this.camera, this.build, dt);
@@ -253,7 +478,13 @@ export class Game {
       this.ambienceTimer = 0;
       this.updateAmbience();
     }
-    if (this.speed > 0 && this.world.state === 'playing') {
+    this.metaTimer += dt;
+    if (this.metaTimer >= 1) {
+      this.metaTimer = 0;
+      this.updateMeta();
+      this.updateMusic();
+    }
+    if (this.screen === 'playing' && this.speed > 0 && this.world.state === 'playing') {
       this.autosaveTimer += dt;
       if (this.autosaveTimer >= AUTOSAVE_INTERVAL) {
         this.autosaveTimer = 0;
@@ -265,13 +496,79 @@ export class Game {
       this.uiTimer = 0;
       const t = performance.now();
       if (this.toasts.some((x) => x.expires <= t)) this.toasts = this.toasts.filter((x) => x.expires > t);
+      if (this.radio && this.radio.expires <= t) {
+        this.radio = null;
+        this.nextRadio();
+      }
       this.notify();
     }
   };
 
+  /** Achievements and codex discoveries are profile-wide, so they are checked here, not in the sim. */
+  private updateMeta(): void {
+    if (this.screen !== 'playing') return;
+    let changed = false;
+    const unlocked = new Set(Object.keys(this.profile.achievements) as (keyof Profile['achievements'])[]);
+    for (const id of checkAchievements(this.world, unlocked)) {
+      this.profile.achievements[id] = Date.now();
+      this.pushToast(msg().toast.achievement(msg().achievements[id].name), 'success');
+      this.sound.play('achievement');
+      changed = true;
+    }
+    const seen = new Set(this.profile.seenEnemies);
+    for (const e of this.world.enemies) {
+      if (seen.has(e.type)) continue;
+      seen.add(e.type);
+      this.profile.seenEnemies.push(e.type);
+      this.pushToast(msg().toast.newSpecies(enemyName(e.type)), 'info', { x: e.x, y: e.y });
+      changed = true;
+    }
+    if (changed) saveProfile(getStorage(), this.profile);
+  }
+
+  private moodFor(): MusicMood {
+    if (this.screen === 'title') return 'title';
+    const w = this.world;
+    if (w.enemies.some((e) => e.type === 'leviathan')) return 'boss';
+    if ((isNightPhase(w.dayPhase) && w.waves.active) || w.enemies.length >= 6) return 'tense';
+    return 'calm';
+  }
+
+  private updateMusic(): void {
+    this.music.setMood(this.moodFor());
+  }
+
+  /** Records the finished run once per colony (high scores, daily best, wins). */
+  private finishRun(victory: boolean): void {
+    const world = this.world;
+    const score = computeScore(world);
+    let rank = -1;
+    if (this.recordedWorld !== world && world.settings.mode !== 'sandbox') {
+      this.recordedWorld = world;
+      rank = recordScore(
+        this.profile,
+        {
+          score: score.total,
+          mode: world.settings.mode,
+          difficulty: world.settings.difficulty,
+          day: world.day,
+          victory,
+          date: dailyKey(new Date()),
+          seed: world.seed,
+        },
+        world.settings.dailyKey,
+      );
+      if (victory) this.profile.wins++;
+    }
+    this.updateMeta();
+    saveProfile(getStorage(), this.profile);
+    this.result = { score, rank, victory };
+    this.notify();
+  }
+
   /** Machine hum follows the number of working machines on screen; crafting adds an occasional clank. */
   private updateAmbience(): void {
-    if (this.speed === 0) {
+    if (this.speed === 0 || this.screen !== 'playing') {
       this.sound.setAmbience(0);
       return;
     }
@@ -312,26 +609,37 @@ export class Game {
     for (const e of events) {
       switch (e.type) {
         case 'sound':
-          this.playWorldSound(e.sound, e.x, e.y);
+          if (this.screen === 'playing') this.playWorldSound(e.sound, e.x, e.y);
           break;
         case 'toast':
-          this.pushToast(e.message, e.level);
+          this.pushToast(e.message, e.level, e.focus);
+          break;
+        case 'radio':
+          this.queueRadio(e.text);
           break;
         case 'shake':
           this.renderer?.addShake(e.strength);
           break;
+        case 'screenFlash':
+          this.renderer?.flash(e.color);
+          break;
         case 'victory':
           this.save();
+          this.finishRun(true);
           important = true;
           break;
         case 'defeat':
           // Keep the last good autosave so "load last save" restores a playable colony.
+          this.finishRun(false);
           important = true;
           break;
         case 'researchComplete':
+        case 'missionComplete':
         case 'nightStart':
         case 'dayStart':
         case 'launchStart':
+        case 'bossSpawn':
+        case 'rankUp':
           important = true;
           break;
         default:
@@ -347,6 +655,7 @@ export class Game {
   private onKey = (e: KeyboardEvent): void => {
     const target = e.target as HTMLElement | null;
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+    if (this.screen !== 'playing') return;
     switch (e.key) {
       case 'r':
       case 'R':
@@ -389,32 +698,10 @@ export class Game {
   };
 
   private onVisibility = (): void => {
-    if (document.visibilityState === 'hidden' && this.world.state === 'playing') this.save();
+    if (document.visibilityState === 'hidden' && this.screen === 'playing' && this.world.state === 'playing') this.save();
   };
 
   private onPageHide = (): void => {
-    if (this.world.state === 'playing') this.save();
+    if (this.screen === 'playing' && this.world.state === 'playing') this.save();
   };
-
-  private loadSettings(): void {
-    try {
-      const raw = getStorage()?.getItem(SETTINGS_KEY);
-      if (!raw) return;
-      const s = JSON.parse(raw) as Partial<Settings>;
-      if (typeof s.muted === 'boolean') this.sound.setMuted(s.muted);
-      if (typeof s.volume === 'number' && Number.isFinite(s.volume)) this.sound.setVolume(s.volume);
-      if (typeof s.showPollution === 'boolean') this.showPollution = s.showPollution;
-    } catch {
-      // Corrupt settings are ignored; defaults apply.
-    }
-  }
-
-  private saveSettings(): void {
-    const settings: Settings = { muted: this.sound.muted, volume: this.sound.volumeLevel, showPollution: this.showPollution };
-    try {
-      getStorage()?.setItem(SETTINGS_KEY, JSON.stringify(settings));
-    } catch {
-      // Settings are a convenience; failing to persist them is harmless.
-    }
-  }
 }

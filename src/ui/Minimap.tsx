@@ -1,6 +1,6 @@
 import { useEffect, useRef, type KeyboardEvent, type PointerEvent } from 'react';
 import { Button } from './common';
-import { useGame, useGameVersion } from './GameContext';
+import { useGame, useGameVersion, useMsg } from './GameContext';
 import { IconMinus, IconPlus, IconTarget } from './Icons';
 
 const MAP_CSS = 128;
@@ -8,6 +8,7 @@ const MAP_CSS = 128;
 /** Top-right radar. Tap or drag on it to move the camera. */
 export function Minimap() {
   const game = useGame();
+  const m = useMsg();
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const c = ref.current;
@@ -31,7 +32,7 @@ export function Minimap() {
       style={{ width: MAP_CSS, height: MAP_CSS }}
       className="pointer-events-auto touch-none rounded-xl border border-cyan-400/35 bg-black shadow-lg shadow-black/60"
       role="img"
-      aria-label="미니맵(레이더): 탭하거나 드래그해 이동"
+      aria-label={m.hud.minimap}
       onPointerDown={(e) => {
         e.currentTarget.setPointerCapture(e.pointerId);
         moveTo(e);
@@ -47,6 +48,7 @@ export function Minimap() {
 export function ZoomControls() {
   const game = useGame();
   useGameVersion();
+  const m = useMsg();
   const track = useRef<HTMLDivElement>(null);
   const cam = game.camera;
   const lmin = Math.log(cam.minZoom);
@@ -71,14 +73,14 @@ export function ZoomControls() {
   };
   return (
     <div className="pointer-events-auto flex flex-col items-center gap-1 rounded-xl border border-white/10 bg-slate-950/80 p-1">
-      <Button variant="ghost" aria-label="확대" onClick={() => zoomBy(1.25)}>
+      <Button variant="ghost" aria-label={m.hud.zoomIn} onClick={() => zoomBy(1.25)}>
         <IconPlus />
       </Button>
       <div
         ref={track}
         role="slider"
         tabIndex={0}
-        aria-label="줌"
+        aria-label={m.hud.zoom}
         aria-orientation="vertical"
         aria-valuemin={0}
         aria-valuemax={100}
@@ -99,10 +101,10 @@ export function ZoomControls() {
           style={{ top: `calc(${(1 - t) * 100}% - 12px)` }}
         />
       </div>
-      <Button variant="ghost" aria-label="축소" onClick={() => zoomBy(1 / 1.25)}>
+      <Button variant="ghost" aria-label={m.hud.zoomOut} onClick={() => zoomBy(1 / 1.25)}>
         <IconMinus />
       </Button>
-      <Button variant="ghost" aria-label="코어로 이동" onClick={() => game.focusCore()}>
+      <Button variant="ghost" aria-label={m.hud.toCore} onClick={() => game.focusCore()}>
         <IconTarget />
       </Button>
     </div>
