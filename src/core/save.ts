@@ -294,6 +294,15 @@ export function deserializeWorld(data: unknown): World | null {
   return world;
 }
 
+/** localStorage, or null when the browser blocks it (private mode, disabled storage). */
+export function getStorage(): Storage | null {
+  try {
+    return typeof window !== 'undefined' ? window.localStorage : null;
+  } catch {
+    return null;
+  }
+}
+
 export function exportToJSON(world: World): string {
   return JSON.stringify(serializeWorld(world));
 }

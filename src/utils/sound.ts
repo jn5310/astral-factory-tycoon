@@ -38,6 +38,7 @@ export class SoundEngine {
   private master: GainNode | null = null;
   private noiseBuffer: AudioBuffer | null = null;
   private lastPlayed: Partial<Record<SoundName, number>> = {};
+  private humLevel: GainNode | null = null;
   muted = false;
   private volume = 0.8;
 
@@ -69,6 +70,60 @@ export class SoundEngine {
   setVolume(v: number): void {
     this.volume = Math.max(0, Math.min(1, v));
     if (this.master && !this.muted) this.master.gain.value = this.volume;
+  }
+
+  get volumeLevel(): number {
+    return this.volume;
+  }
+
+  /**
+   * Continuous factory hum: a filtered sawtooth drone plus band-passed noise, pulsed by a slow LFO.
+   * `level` (0..1) follows how many machines are working on screen.
+   */
+  setAmbience(level: number): void {
+    const ctx = this.ctx;
+    const master = this.master;
+    if (!ctx || !master || ctx.state !== 'running') return;
+    if (!this.humLevel) {
+      const levelGain = ctx.createGain();
+      levelGain.gain.value = 0;
+      const mod = ctx.createGain();
+      mod.gain.value = 1;
+      const drone = ctx.createOscillator();
+      drone.type = 'sawtooth';
+      drone.frequency.value = 52;
+      const lowpass = ctx.createBiquadFilter();
+      lowpass.type = 'lowpass';
+      lowpass.frequency.value = 170;
+      drone.connect(lowpass);
+      lowpass.connect(mod);
+      const rumble = ctx.createBufferSource();
+      rumble.buffer = this.noiseBuffer;
+      rumble.loop = true;
+      const band = ctx.createBiquadFilter();
+      band.type = 'bandpass';
+      band.frequency.value = 320;
+      band.Q.value = 0.7;
+      const rumbleGain = ctx.createGain();
+      rumbleGain.gain.value = 0.4;
+      rumble.connect(band);
+      band.connect(rumbleGain);
+      rumbleGain.connect(mod);
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = 2.2;
+      const lfoDepth = ctx.createGain();
+      lfoDepth.gain.value = 0.3;
+      lfo.connect(lfoDepth);
+      lfoDepth.connect(mod.gain);
+      mod.connect(levelGain);
+      levelGain.connect(master);
+      drone.start();
+      rumble.start();
+      lfo.start();
+      this.humLevel = levelGain;
+    }
+    const target = Math.max(0, Math.min(1, level)) * 0.06;
+    this.humLevel.gain.setTargetAtTime(target, ctx.currentTime, 0.5);
   }
 
   play(name: SoundName, pan = 0, distanceVolume = 1): void {

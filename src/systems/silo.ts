@@ -64,9 +64,19 @@ export function updateLaunch(world: World, dt: number): void {
   }
   if (l.timer >= LAUNCH_DURATION && world.state === 'playing') {
     world.state = 'victory';
+    if (silo?.silo) silo.silo.installed = 0;
+    l.active = false;
     pushEvent(world, { type: 'victory' });
     playSound(world, 'victory', world.width / 2, world.height / 2);
   }
+}
+
+/** After a win the colony keeps running in free play; the silo starts a new rocket from zero. */
+export function continueAfterVictory(world: World): void {
+  if (world.state !== 'victory') return;
+  world.state = 'playing';
+  world.launch.active = false;
+  world.launch.timer = 0;
 }
 
 export function rocketProgress(world: World): { installed: number; required: number } {
