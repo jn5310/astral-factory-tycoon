@@ -30,8 +30,13 @@ function PowerGauge() {
   const [open, setOpen] = useState(false);
   const t = game.world.power.totals;
   const scale = Math.max(t.capacity, t.demand, 1);
-  const sat = t.demand > 0 ? t.satisfaction : 1;
-  const tone = sat >= 0.999 ? 'text-emerald-300' : sat >= 0.5 ? 'text-amber-300' : 'text-red-400';
+  // Speed of the worst overloaded grid; grids with no generator at all are reported separately below.
+  let sat = 1;
+  for (const n of game.world.power.networks) {
+    if (n.demand > 0 && (n.capacity > 0 || n.stored > 0)) sat = Math.min(sat, n.satisfaction);
+  }
+  // Colour by the worst real problem: an overloaded grid is red/amber, a grid that is merely unconnected is amber.
+  const tone = t.overloaded > 0 ? (sat >= 0.5 ? 'text-amber-300' : 'text-red-400') : t.starved > 0 || t.unpowered > 0 ? 'text-amber-300' : 'text-emerald-300';
   return (
     <div className="relative shrink-0">
       <button
@@ -70,9 +75,14 @@ function PowerGauge() {
             <dt className="text-slate-400">전력망 수</dt>
             <dd className="text-right">{t.networks}</dd>
           </dl>
-          <p className={cx('mt-2 rounded-md p-2', sat >= 0.999 ? 'bg-emerald-950/60 text-emerald-200' : 'bg-red-950/60 text-red-200')}>
-            {sat >= 0.999 ? '정상 가동 중' : `과부하! 전력 기계 전체가 ${percent(sat)} 속도로 느려집니다. 발전기·축전지를 늘리세요.`}
-          </p>
+          {t.overloaded > 0 ? (
+            <p className="mt-2 rounded-md bg-red-950/60 p-2 text-red-200">
+              과부하! 전력망 {t.overloaded}개의 기계가 {percent(sat)} 속도로 느려졌습니다. 발전기·축전지를 늘리세요.
+            </p>
+          ) : (
+            <p className="mt-2 rounded-md bg-emerald-950/60 p-2 text-emerald-200">발전량이 충분합니다.</p>
+          )}
+          {t.starved > 0 && <p className="mt-1 text-amber-300">발전기와 연결되지 않은 전력망 {t.starved}개가 멈춰 있습니다. 전신주(8칸 이내)로 이어 주세요.</p>}
           {t.unpowered > 0 && <p className="mt-1 text-amber-300">전신주 반경 밖의 건물 {t.unpowered}개가 멈춰 있습니다.</p>}
         </div>
       )}
@@ -131,7 +141,7 @@ export function TopBar({ onOpen }: { onOpen: (o: Overlay) => void }) {
   };
   return (
     <div className="pointer-events-auto flex flex-col gap-1 bg-linear-to-b from-slate-950/95 to-slate-950/60 px-2 pb-1 pt-[max(env(safe-area-inset-top),0.25rem)]">
-      <div className="no-scrollbar flex items-center gap-1.5 overflow-x-auto">
+      <div className="flex flex-wrap items-center gap-1.5">
         <Button aria-label="메뉴" onClick={() => open('menu')}>
           <IconMenu />
         </Button>

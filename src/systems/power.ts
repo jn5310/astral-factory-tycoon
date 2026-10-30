@@ -32,6 +32,10 @@ export interface PowerTotals {
   discharge: number;
   networks: number;
   unpowered: number;
+  /** Networks with demand but no generator and no stored energy at all. */
+  starved: number;
+  /** Networks that have supply but not enough of it (true overload). */
+  overloaded: number;
 }
 
 export interface PowerState {
@@ -58,6 +62,8 @@ export function createPowerState(): PowerState {
       discharge: 0,
       networks: 0,
       unpowered: 0,
+      starved: 0,
+      overloaded: 0,
     },
   };
 }
@@ -278,6 +284,8 @@ export function updatePower(world: World, dt: number): void {
   totals.discharge = 0;
   totals.networks = world.power.networks.length;
   totals.unpowered = 0;
+  totals.starved = 0;
+  totals.overloaded = 0;
 
   for (const b of world.buildings.values()) {
     if (b.powerNet !== -1) continue;
@@ -368,6 +376,10 @@ export function updatePower(world: World, dt: number): void {
     net.charge = res.charge;
     net.discharge = res.discharge;
 
+    if (demand > 0 && res.satisfaction < 0.999) {
+      if (solar + thermal <= 0 && stored <= 0) totals.starved++;
+      else totals.overloaded++;
+    }
     totals.demand += demand;
     totals.generation += net.generation;
     totals.capacity += net.capacity;
