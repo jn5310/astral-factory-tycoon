@@ -120,6 +120,8 @@ export interface TurretState {
   target: number;
   /** Visual: beam strength / muzzle flash 0..1. */
   flash: number;
+  /** Kills credited to this turret (veterancy). */
+  kills: number;
   beamX: number;
   beamY: number;
 }
@@ -217,7 +219,7 @@ export function createBuilding(
   else if (kind === 'lab') b.lab = { items: {}, progress: 0 };
   else if (kind === 'rocket_silo') b.silo = { buffer: 0, installed: 0, progress: 0 };
   if (TURRETS[kind]) {
-    b.turret = { ammoItem: null, ammo: 0, cooldown: 0, angle: -Math.PI / 2, target: 0, flash: 0, beamX: 0, beamY: 0 };
+    b.turret = { ammoItem: null, ammo: 0, cooldown: 0, angle: -Math.PI / 2, target: 0, flash: 0, kills: 0, beamX: 0, beamY: 0 };
   }
   return b;
 }

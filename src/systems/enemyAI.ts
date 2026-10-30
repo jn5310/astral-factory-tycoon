@@ -344,6 +344,12 @@ export function updateEnemy(world: World, e: Enemy, grid: PathGrid, dt: number):
     if (e.slowTimer <= 0) e.slowFactor = 1;
   }
   if (e.hitFlash > 0) e.hitFlash = Math.max(0, e.hitFlash - dt);
+  // Frozen by a cryo pulse: no movement, no attacks, no abilities.
+  if (e.slowFactor <= 0 && e.slowTimer > 0) {
+    e.vx = 0;
+    e.vy = 0;
+    return;
+  }
   const speed = def.speed * e.slowFactor;
 
   if (e.type === 'healer') updateHealer(world, e, dt);

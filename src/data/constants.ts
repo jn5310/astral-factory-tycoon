@@ -58,6 +58,8 @@ export const PATH_BUDGET_PER_TICK = 6;
 export const SAVE_KEY = 'astral-factory-save-v1';
 export const BLUEPRINT_KEY = 'astral-factory-blueprints-v1';
 export const SETTINGS_KEY = 'astral-factory-settings-v1';
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
+/** Oldest save format that can still be loaded. */
+export const MIN_SAVE_VERSION = 1;
 export const AUTOSAVE_INTERVAL = 60;
 export const MAX_IMPORT_BYTES = 20 * 1024 * 1024;

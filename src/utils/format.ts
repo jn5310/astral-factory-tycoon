@@ -1,3 +1,5 @@
+import { msg } from './i18n';
+
 /** Compact number: 1234 -> "1.2k", 2_500_000 -> "2.5M". */
 export function compact(n: number): string {
   const abs = Math.abs(n);
@@ -24,7 +26,7 @@ export function energy(kj: number): string {
 }
 
 export function rate(perMin: number): string {
-  return `${compact(perMin)}/분`;
+  return msg().common.perMin(compact(perMin));
 }
 
 export function percent(frac: number): string {

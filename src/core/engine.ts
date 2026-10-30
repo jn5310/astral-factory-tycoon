@@ -1,7 +1,10 @@
 import type { Building } from '../entities/Building';
 import { isCrafterKind } from '../data/buildings';
 import { MAX_STEPS_PER_FRAME, SIM_DT } from '../data/constants';
+import { updateAbilities } from '../systems/abilities';
+import { updateDirector, updatePickups } from '../systems/director';
 import { updateEnemies, rebuildEnemyIndex } from '../systems/enemyAI';
+import { updateMissions } from '../systems/missions';
 import { updateLogistics } from '../systems/logistics';
 import { stepPollution } from '../systems/pollution';
 import { updatePower } from '../systems/power';
@@ -34,6 +37,8 @@ export function stepWorld(world: World, dt: number = SIM_DT): void {
     rebuildEnemyIndex(world);
     updateEnemies(world, dt);
     rebuildEnemyIndex(world);
+    updateDirector(world, dt);
+    updateAbilities(world, dt);
 
     updatePower(world, dt);
     for (const b of world.buildings.values()) updateProducer(world, b, dt);
@@ -43,7 +48,10 @@ export function stepWorld(world: World, dt: number = SIM_DT): void {
     updateProjectiles(world, dt);
 
     stepPollution(world.pollution, dt);
+    updatePickups(world, dt);
   }
+  // Missions also run after a win so the final "launch the rocket" mission completes.
+  updateMissions(world, dt);
   updateLaunch(world, dt);
   world.particles.update(dt);
   world.stats.update(dt);

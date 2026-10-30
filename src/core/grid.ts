@@ -1,6 +1,7 @@
 import type { Building } from '../entities/Building';
 import { Terrain } from '../data/terrain';
 import type { GameEvent, SoundName, ToastLevel } from './events';
+import type { TileXY } from './types';
 import type { World } from './World';
 
 export function inBounds(w: World, x: number, y: number): boolean {
@@ -41,8 +42,13 @@ export function playSound(w: World, sound: SoundName, x: number, y: number): voi
   pushEvent(w, { type: 'sound', sound, x, y });
 }
 
-export function toast(w: World, message: string, level: ToastLevel = 'info'): void {
-  pushEvent(w, { type: 'toast', message, level });
+export function toast(w: World, message: string, level: ToastLevel = 'info', focus?: TileXY): void {
+  pushEvent(w, focus ? { type: 'toast', message, level, focus } : { type: 'toast', message, level });
+}
+
+/** A Mission Control transmission shown in the radio box. */
+export function radio(w: World, text: string): void {
+  pushEvent(w, { type: 'radio', text });
 }
 
 /** Marks that buildings changed: paths, belt order, links and power must be recomputed. */

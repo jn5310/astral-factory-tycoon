@@ -49,7 +49,7 @@ export class Renderer {
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext('2d', { alpha: false });
-    if (!ctx) throw new Error('Canvas 2D를 지원하지 않는 브라우저입니다');
+    if (!ctx) throw new Error('Canvas 2D is not supported in this browser');
     this.ctx = ctx;
   }
 

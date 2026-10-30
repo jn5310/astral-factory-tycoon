@@ -1,4 +1,5 @@
 import type { SoundName } from '../core/events';
+import type { AudioOut } from './music';
 
 interface SoundConfig {
   minInterval: number;
@@ -26,6 +27,15 @@ const CONFIG: Record<SoundName, SoundConfig> = {
   error: { minInterval: 0.1, volume: 0.4 },
   launch: { minInterval: 1, volume: 0.7 },
   craft: { minInterval: 0.2, volume: 0.15 },
+  mission: { minInterval: 0.5, volume: 0.55 },
+  achievement: { minInterval: 0.5, volume: 0.6 },
+  orbital: { minInterval: 0.3, volume: 0.6 },
+  freeze: { minInterval: 0.5, volume: 0.55 },
+  pickup: { minInterval: 0.15, volume: 0.5 },
+  meteor: { minInterval: 0.08, volume: 0.55 },
+  rankUp: { minInterval: 0.3, volume: 0.45 },
+  siren: { minInterval: 2, volume: 0.45 },
+  overclock: { minInterval: 0.5, volume: 0.5 },
 };
 
 /**
@@ -36,11 +46,14 @@ const CONFIG: Record<SoundName, SoundConfig> = {
 export class SoundEngine {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
+  private sfxBus: GainNode | null = null;
+  private musicBus: GainNode | null = null;
   private noiseBuffer: AudioBuffer | null = null;
   private lastPlayed: Partial<Record<SoundName, number>> = {};
   private humLevel: GainNode | null = null;
   muted = false;
-  private volume = 0.8;
+  private sfxVolume = 0.8;
+  private musicVolume = 0.5;
 
   /** Must be called from a user gesture handler to satisfy autoplay policies. */
   resume(): void {
@@ -53,8 +66,14 @@ export class SoundEngine {
     if (!Ctor) return;
     this.ctx = new Ctor();
     this.master = this.ctx.createGain();
-    this.master.gain.value = this.volume;
+    this.master.gain.value = this.muted ? 0 : 1;
     this.master.connect(this.ctx.destination);
+    this.sfxBus = this.ctx.createGain();
+    this.sfxBus.gain.value = this.sfxVolume;
+    this.sfxBus.connect(this.master);
+    this.musicBus = this.ctx.createGain();
+    this.musicBus.gain.value = this.musicVolume;
+    this.musicBus.connect(this.master);
     const len = Math.floor(this.ctx.sampleRate * 0.4);
     const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
     const data = buf.getChannelData(0);
@@ -64,16 +83,31 @@ export class SoundEngine {
 
   setMuted(muted: boolean): void {
     this.muted = muted;
-    if (this.master && this.ctx) this.master.gain.value = muted ? 0 : this.volume;
+    if (this.master) this.master.gain.value = muted ? 0 : 1;
   }
 
-  setVolume(v: number): void {
-    this.volume = Math.max(0, Math.min(1, v));
-    if (this.master && !this.muted) this.master.gain.value = this.volume;
+  setSfxVolume(v: number): void {
+    this.sfxVolume = Math.max(0, Math.min(1, v));
+    if (this.sfxBus) this.sfxBus.gain.value = this.sfxVolume;
   }
 
-  get volumeLevel(): number {
-    return this.volume;
+  setMusicVolume(v: number): void {
+    this.musicVolume = Math.max(0, Math.min(1, v));
+    if (this.musicBus) this.musicBus.gain.value = this.musicVolume;
+  }
+
+  get sfxLevel(): number {
+    return this.sfxVolume;
+  }
+
+  get musicLevel(): number {
+    return this.musicVolume;
+  }
+
+  /** Context and music bus for the soundtrack (null until audio has been unlocked). */
+  audioOut(): AudioOut | null {
+    if (!this.ctx || !this.musicBus) return null;
+    return { ctx: this.ctx, bus: this.musicBus, noise: this.noiseBuffer };
   }
 
   /**
@@ -82,7 +116,7 @@ export class SoundEngine {
    */
   setAmbience(level: number): void {
     const ctx = this.ctx;
-    const master = this.master;
+    const master = this.sfxBus;
     if (!ctx || !master || ctx.state !== 'running') return;
     if (!this.humLevel) {
       const levelGain = ctx.createGain();
@@ -130,7 +164,7 @@ export class SoundEngine {
     if (this.muted) return;
     if (!this.ctx) this.init();
     const ctx = this.ctx;
-    const master = this.master;
+    const master = this.sfxBus;
     if (!ctx || !master || ctx.state !== 'running') return;
     const cfg = CONFIG[name];
     const now = ctx.currentTime;
@@ -263,6 +297,47 @@ export class SoundEngine {
         break;
       case 'craft':
         this.tone(ctx, 'triangle', 300, 360, t0, 0.05, this.env(ctx, out, 0.3, 0.004, 0.05, t0));
+        break;
+      case 'mission':
+        [523, 659, 784, 1047, 1319].forEach((f, i) =>
+          this.tone(ctx, 'triangle', f, f, t0 + i * 0.07, 0.22, this.env(ctx, out, 0.5, 0.005, 0.22, t0 + i * 0.07)),
+        );
+        break;
+      case 'achievement':
+        [784, 988, 1175].forEach((f) => this.tone(ctx, 'sine', f, f, t0, 0.9, this.env(ctx, out, 0.35, 0.01, 0.9, t0)));
+        this.tone(ctx, 'sine', 1568, 1568, t0 + 0.15, 0.8, this.env(ctx, out, 0.3, 0.01, 0.8, t0 + 0.15));
+        break;
+      case 'orbital':
+        this.tone(ctx, 'sawtooth', 200, 1800, t0, 1.4, this.env(ctx, out, 0.4, 0.05, 1.4, t0));
+        this.tone(ctx, 'sine', 900, 2400, t0, 1.4, this.env(ctx, out, 0.25, 0.05, 1.4, t0));
+        break;
+      case 'freeze':
+        [2093, 1760, 1397, 1175].forEach((f, i) =>
+          this.tone(ctx, 'sine', f, f * 0.98, t0 + i * 0.06, 0.6, this.env(ctx, out, 0.3, 0.005, 0.6, t0 + i * 0.06)),
+        );
+        this.burst(ctx, out, t0, 0.6, 5000, 0.4);
+        break;
+      case 'pickup':
+        this.tone(ctx, 'square', 988, 988, t0, 0.07, this.env(ctx, out, 0.35, 0.003, 0.07, t0));
+        this.tone(ctx, 'square', 1319, 1319, t0 + 0.08, 0.2, this.env(ctx, out, 0.35, 0.003, 0.2, t0 + 0.08));
+        break;
+      case 'meteor':
+        this.burst(ctx, out, t0, 0.35, 900, 0.7);
+        this.tone(ctx, 'sawtooth', 90, 25, t0, 0.7, this.env(ctx, out, 1, 0.005, 0.7, t0));
+        break;
+      case 'rankUp':
+        this.tone(ctx, 'triangle', 659, 659, t0, 0.12, this.env(ctx, out, 0.45, 0.005, 0.12, t0));
+        this.tone(ctx, 'triangle', 988, 988, t0 + 0.12, 0.3, this.env(ctx, out, 0.45, 0.005, 0.3, t0 + 0.12));
+        break;
+      case 'siren':
+        for (let k = 0; k < 3; k++) {
+          this.tone(ctx, 'sawtooth', 520, 880, t0 + k * 0.5, 0.25, this.env(ctx, out, 0.3, 0.02, 0.25, t0 + k * 0.5));
+          this.tone(ctx, 'sawtooth', 880, 520, t0 + k * 0.5 + 0.25, 0.25, this.env(ctx, out, 0.3, 0.02, 0.25, t0 + k * 0.5 + 0.25));
+        }
+        break;
+      case 'overclock':
+        this.tone(ctx, 'square', 110, 880, t0, 0.6, this.env(ctx, out, 0.3, 0.02, 0.6, t0));
+        this.tone(ctx, 'sine', 220, 1760, t0, 0.6, this.env(ctx, out, 0.25, 0.02, 0.6, t0));
         break;
       default:
         break;

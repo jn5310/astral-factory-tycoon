@@ -4,6 +4,7 @@ import { COAL_ENERGY, POLE_SUPPLY_RADIUS, POLE_WIRE_REACH } from '../data/consta
 import { buildingAt } from '../core/grid';
 import type { World } from '../core/World';
 import { daylightAt } from './daynight';
+import { solarMultiplier } from './modifiers';
 
 export interface PowerNetwork {
   id: number;
@@ -254,7 +255,7 @@ export function thermalAvailable(b: Building): boolean {
 export function generatorCapacity(world: World, b: Building): number {
   const gen = BUILDINGS[b.kind].power?.gen ?? 0;
   const mul = world.modifiers.generatorOutput;
-  if (b.kind === 'solar_panel') return gen * mul * daylightAt(world.dayPhase);
+  if (b.kind === 'solar_panel') return gen * mul * daylightAt(world.dayPhase) * solarMultiplier(world);
   if (b.kind === 'thermal_generator') return thermalAvailable(b) ? gen * mul : 0;
   return 0;
 }
@@ -391,4 +392,5 @@ export function updatePower(world: World, dt: number): void {
   let supplied = 0;
   for (const net of world.power.networks) supplied += net.demand * net.satisfaction;
   totals.satisfaction = totals.demand > 0 ? supplied / totals.demand : 1;
+  if (totals.capacity > world.counters.peakPower) world.counters.peakPower = totals.capacity;
 }
